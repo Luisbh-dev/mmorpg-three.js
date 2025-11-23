@@ -1,0 +1,11 @@
+Model Information:
+* title:	Pale Knight Animated
+* source:	https://sketchfab.com/3d-models/pale-knight-animated-9594a385689745eb89effb9f57d72142
+* author:	mara3m (https://sketchfab.com/relloksator)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Pale Knight Animated" (https://sketchfab.com/3d-models/pale-knight-animated-9594a385689745eb89effb9f57d72142) by mara3m (https://sketchfab.com/relloksator) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
