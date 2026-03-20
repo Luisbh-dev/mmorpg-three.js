@@ -2,16 +2,17 @@ import React, { useEffect } from 'react';
 import useGameStore from '../../stores/useGameStore';
 
 const Inventory = () => {
-  const { isInventoryOpen, toggleInventory, myCharacter, useItem } = useGameStore();
+  const isInventoryOpen = useGameStore((state) => state.isInventoryOpen);
+  const toggleInventory = useGameStore((state) => state.toggleInventory);
+  const myCharacter = useGameStore((state) => state.myCharacter);
+  const useItem = useGameStore((state) => state.useItem);
 
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-      
-      if (e.code === 'KeyI') {
-        toggleInventory();
-      }
+    const handleKeyDown = (event) => {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      if (event.code === 'KeyI') toggleInventory();
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleInventory]);
@@ -19,112 +20,108 @@ const Inventory = () => {
   if (!isInventoryOpen || !myCharacter) return null;
 
   const items = myCharacter.inventory || [];
-  const slots = 20; // Fixed slots for now
 
   return (
     <div style={{
       position: 'absolute',
-      top: 0, left: 0, width: '100%', height: '100%',
-      background: 'rgba(0,0,0,0.7)',
-      display: 'flex', justifyContent: 'center', alignItems: 'center',
-      zIndex: 60,
-      fontFamily: '"Cinzel", serif',
-      color: '#e0e0e0'
+      inset: 0,
+      background: 'rgba(5,8,12,0.78)',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 60
     }}>
       <div style={{
-        width: '450px',
-        background: 'rgba(15, 15, 15, 0.95)',
-        border: '2px solid #555',
-        borderRadius: '4px',
-        padding: '20px',
-        boxShadow: '0 0 50px rgba(0,0,0,0.8)',
-        borderImage: 'linear-gradient(to bottom, #c5a059, #555) 1',
-        position: 'relative'
+        width: 560,
+        maxWidth: '92vw',
+        padding: 24,
+        borderRadius: 24,
+        background: 'linear-gradient(180deg, rgba(15,19,24,0.98), rgba(9,11,15,0.95))',
+        border: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 28px 60px rgba(0,0,0,0.42)',
+        color: '#edf2f7'
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px', alignItems: 'center' }}>
-          <h2 style={{ margin: 0, color: '#c5a059', textTransform: 'uppercase', letterSpacing: '2px' }}>Inventario</h2>
-          <button 
-            onClick={toggleInventory} 
-            style={{ 
-              background: 'none', border: 'none', color: '#aaa', 
-              cursor: 'pointer', fontSize: '1.5rem', fontWeight: 'bold',
-              transition: 'color 0.2s'
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>Inventario</div>
+            <div style={{ color: '#a8b7c6', fontSize: '0.9rem' }}>Doble click para consumir objetos</div>
+          </div>
+          <button
+            onClick={toggleInventory}
+            style={{
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(255,255,255,0.04)',
+              color: '#edf2f7',
+              borderRadius: 12,
+              width: 40,
+              height: 40,
+              cursor: 'pointer'
             }}
-            onMouseOver={e => e.target.style.color = '#fff'}
-            onMouseOut={e => e.target.style.color = '#aaa'}
           >
-            ✕
+            X
           </button>
         </div>
 
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(5, 1fr)',
-          gap: '10px',
-          padding: '10px',
-          background: 'rgba(0,0,0,0.3)',
-          borderRadius: '4px',
-          border: '1px solid #333'
+          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+          gap: 12,
+          padding: 14,
+          borderRadius: 18,
+          background: 'rgba(255,255,255,0.03)'
         }}>
-          {Array.from({ length: slots }).map((_, i) => {
-            const item = items[i];
+          {Array.from({ length: 20 }).map((_, index) => {
+            const item = items[index];
+            const isGold = item?.itemCode === 'gold' || item?.itemType === 'currency';
             return (
-              <div key={i} 
-                onDoubleClick={() => item && useItem(i)}
+              <div
+                key={index}
+                onDoubleClick={() => item && useItem(index)}
+                title={item ? item.name : ''}
                 style={{
-                  width: '60px',
-                  height: '60px',
-                  background: 'linear-gradient(to bottom, #2a2a2a, #1a1a1a)',
-                  border: '1px solid #444',
+                  aspectRatio: '1 / 1',
+                  borderRadius: 16,
+                  border: `1px solid ${item ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)'}`,
+                  background: item ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.02)',
                   display: 'flex',
-                  justifyContent: 'center',
                   alignItems: 'center',
+                  justifyContent: 'center',
                   position: 'relative',
-                  cursor: item ? 'pointer' : 'default',
-                  userSelect: 'none',
-                  boxShadow: 'inset 0 0 10px rgba(0,0,0,0.5)',
-                  transition: 'border-color 0.2s'
-                }} 
-                title={item ? `${item.name} (Doble click para usar)` : ''}
-                onMouseOver={e => item && (e.currentTarget.style.borderColor = '#c5a059')}
-                onMouseOut={e => e.currentTarget.style.borderColor = '#444'}
+                  cursor: item ? 'pointer' : 'default'
+                }}
               >
                 {item && (
                   <>
-                    <div style={{ 
-                      width: '40px', height: '40px', 
-                      background: item.color || 'white', 
-                      borderRadius: '50%',
-                      border: '2px solid #111',
-                      boxShadow: '0 0 5px black'
+                    <div style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: isGold ? '50%' : 12,
+                      background: item.color || (isGold ? '#ffd66b' : '#ff6b6b'),
+                      boxShadow: `0 0 18px ${item.color || (isGold ? '#ffd66b' : '#ff6b6b')}55`
                     }} />
-                    <span style={{ 
-                      position: 'absolute', bottom: 2, right: 2, 
-                      fontSize: '10px', background: 'rgba(0,0,0,0.8)', 
-                      padding: '1px 4px', borderRadius: '2px', border: '1px solid #333'
+                    <div style={{
+                      position: 'absolute',
+                      left: 8,
+                      right: 8,
+                      bottom: 8,
+                      textAlign: 'center',
+                      fontSize: '0.66rem',
+                      color: '#e8eef5'
                     }}>
-                      1
-                    </span>
+                      {item.name}
+                    </div>
                   </>
                 )}
               </div>
             );
           })}
         </div>
-        
-        <div style={{ 
-          marginTop: '20px', fontSize: '1.1rem', color: '#aaa', textAlign: 'right',
-          display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px'
-        }}>
-          <span style={{ fontSize: '0.9rem' }}>ORO:</span> 
-          <span style={{ color: '#FFD700', fontWeight: 'bold' }}>{myCharacter.gold || 0}</span> 
-          <div style={{ width: '16px', height: '16px', background: '#FFD700', borderRadius: '50%', border: '2px solid #B8860B' }} />
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 18, color: '#c0cbd6' }}>
+          <span>Objetos: {items.length} / 20</span>
+          <span>Oro: <strong style={{ color: '#ffd66b' }}>{myCharacter.gold || 0}</strong></span>
         </div>
       </div>
-      
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap');
-      `}</style>
     </div>
   );
 };

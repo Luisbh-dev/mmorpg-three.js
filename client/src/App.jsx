@@ -17,17 +17,34 @@ function App() {
   const { connect, isConnected, authStage } = useGameStore()
 
   useEffect(() => {
-    connect()
-  }, [])
+    if (!isConnected) {
+      connect()
+    }
+  }, [connect, isConnected])
 
   if (!isConnected) {
     return (
       <div style={{ 
-        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, 
-        display: 'flex', justifyContent: 'center', alignItems: 'center',
-        color: 'white', zIndex: 10, background: '#000'
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        color: '#eef5ff',
+        zIndex: 10,
+        background: 'radial-gradient(circle at top, #20354a 0%, #06080d 72%)'
       }}>
-        Connecting to server...
+        <div style={{
+          padding: '24px 28px',
+          borderRadius: '22px',
+          background: 'rgba(10,16,24,0.78)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          boxShadow: '0 30px 60px rgba(0,0,0,0.35)',
+          textAlign: 'center'
+        }}>
+          <div style={{ fontSize: '1.35rem', fontWeight: 800, marginBottom: '6px' }}>Aethelgard</div>
+          <div style={{ color: '#b8c6d3' }}>Conectando con el reino...</div>
+        </div>
       </div>
     )
   }

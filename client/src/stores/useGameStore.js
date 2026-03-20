@@ -1,50 +1,110 @@
-import { create } from 'zustand'
-import { io } from 'socket.io-client'
+import { create } from 'zustand';
+import { io } from 'socket.io-client';
+import audioManager from '../systems/AudioManager';
+
+const MAX_MESSAGES = 80;
+const MAX_NOTIFICATIONS = 5;
+
+const baseSessionState = {
+  players: {},
+  mobs: {},
+  items: {},
+  npcs: {},
+  myCharacter: null,
+  messages: [],
+  notifications: [],
+  lastCombatAction: null,
+  controlPoints: {},
+  questDefinitions: {},
+  skillBook: {},
+  isMapOpen: false,
+  isInventoryOpen: false,
+  isSystemMenuOpen: false,
+  activeDialog: null,
+  authStage: 'login',
+  user: null,
+  userCharacters: []
+};
 
 const useGameStore = create((set, get) => ({
   socket: null,
   isConnected: false,
-  players: {},
-  mobs: {},
-  items: {}, // Dropped items
-  npcs: {},
   myId: null,
-  myCharacter: null, // Stores local player info after join
-  messages: [],
-  isMapOpen: false,
-  isInventoryOpen: false,
-  isSystemMenuOpen: false,
-  activeDialog: null, // { npcId, text, options }
+  ...baseSessionState,
 
-  // Auth State
-  user: null,
-  userCharacters: [],
-  authStage: 'login', // login, char_select, create, game
+  pushNotification: (message, tone = 'info') => {
+    set((state) => ({
+      notifications: [
+        ...state.notifications,
+        {
+          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          message,
+          tone
+        }
+      ].slice(-MAX_NOTIFICATIONS)
+    }));
+  },
+
+  dismissNotification: (id) => {
+    set((state) => ({
+      notifications: state.notifications.filter((notification) => notification.id !== id)
+    }));
+  },
+
+  setAuthStage: (authStage) => {
+    set({ authStage });
+  },
+
+  closeAllPanels: () => {
+    set({
+      isMapOpen: false,
+      isInventoryOpen: false,
+      isSystemMenuOpen: false,
+      activeDialog: null
+    });
+  },
 
   connect: () => {
+    if (get().socket) return;
+
     const socket = io('http://localhost:3001');
-    
+
     socket.on('connect', () => {
       set({ isConnected: true, socket, myId: socket.id });
-      console.log('Connected to server:', socket.id);
     });
 
     socket.on('disconnect', () => {
-      set({ 
-        isConnected: false, socket: null, 
-        myCharacter: null, messages: [], mobs: {}, items: {},
-        authStage: 'login', user: null
+      audioManager.stopBGM();
+      set({
+        socket: null,
+        isConnected: false,
+        myId: null,
+        ...baseSessionState
       });
-      console.log('Disconnected');
+    });
+
+    socket.on('world:state', ({ controlPoints = {}, quests = {}, skills = {} }) => {
+      set({
+        controlPoints,
+        questDefinitions: quests,
+        skillBook: skills
+      });
+    });
+
+    socket.on('controlPoints:update', (controlPoints) => {
+      set({ controlPoints });
     });
 
     socket.on('players:update', (players) => {
       set((state) => {
-        const newState = { players };
-        if (state.myId && players[state.myId]) {
-           newState.myCharacter = { ...state.myCharacter, ...players[state.myId] };
-        }
-        return newState;
+        const myCharacter = state.myId && players[state.myId]
+          ? { ...state.myCharacter, ...players[state.myId] }
+          : state.myCharacter;
+
+        return {
+          players,
+          myCharacter
+        };
       });
     });
 
@@ -61,8 +121,13 @@ const useGameStore = create((set, get) => ({
     });
 
     socket.on('dialog:open', (dialogData) => {
-      set({ activeDialog: dialogData });
-      // Delay exit lock to ensure state propagates and prevent SystemMenu from opening
+      set({
+        activeDialog: dialogData,
+        isMapOpen: false,
+        isInventoryOpen: false,
+        isSystemMenuOpen: false
+      });
+
       setTimeout(() => {
         if (document.pointerLockElement) document.exitPointerLock();
       }, 10);
@@ -72,7 +137,7 @@ const useGameStore = create((set, get) => ({
       set((state) => {
         const mobs = { ...state.mobs };
         if (mobs[mobId]) {
-          mobs[mobId].hp = newHp;
+          mobs[mobId] = { ...mobs[mobId], hp: newHp };
         }
         return { mobs };
       });
@@ -82,52 +147,103 @@ const useGameStore = create((set, get) => ({
       set((state) => {
         const players = { ...state.players };
         if (players[id]) {
-          players[id].stats.xp = xp;
-          players[id].stats.maxXp = maxXp;
-          players[id].stats.level = level;
+          players[id] = {
+            ...players[id],
+            stats: { ...players[id].stats, xp, maxXp, level }
+          };
         }
-        if (state.myId === id) {
-           return { players, myCharacter: { ...state.myCharacter, stats: { ...state.myCharacter.stats, xp, maxXp, level } } };
-        }
-        return { players };
+
+        const myCharacter = state.myId === id && state.myCharacter
+          ? {
+              ...state.myCharacter,
+              stats: { ...state.myCharacter.stats, xp, maxXp, level }
+            }
+          : state.myCharacter;
+
+        return { players, myCharacter };
       });
     });
 
     socket.on('player:levelup', ({ id, level, stats }) => {
-       set((state) => {
+      set((state) => {
         const players = { ...state.players };
         if (players[id]) {
-          players[id].stats = stats;
+          players[id] = { ...players[id], stats };
         }
-        const name = players[id]?.name || 'Unknown';
-        const msg = { id: Date.now(), playerName: 'SYSTEM', text: `${name} reached Level ${level}!`, faction: 'system' };
-        
+
+        const notifications = [...state.notifications];
         if (state.myId === id) {
-           audioManager.playSFX('levelUp');
-           return { players, messages: [...state.messages, msg], myCharacter: { ...state.myCharacter, stats } };
+          audioManager.playSFX('levelUp');
+          notifications.push({
+            id: `${Date.now()}-levelup`,
+            message: `Nivel ${level}. Tus atributos han mejorado.`,
+            tone: 'success'
+          });
         }
-        return { players, messages: [...state.messages, msg] };
+
+        const name = players[id]?.name || 'Unknown';
+        return {
+          players,
+          myCharacter: state.myId === id && state.myCharacter
+            ? { ...state.myCharacter, stats }
+            : state.myCharacter,
+          messages: [
+            ...state.messages,
+            {
+              id: Date.now(),
+              playerName: 'SYSTEM',
+              text: `${name} reached Level ${level}!`,
+              faction: 'system'
+            }
+          ].slice(-MAX_MESSAGES),
+          notifications: notifications.slice(-MAX_NOTIFICATIONS)
+        };
       });
     });
 
     socket.on('player:joined', (character) => {
-      // We handle this via char selection now, but update store anyway
       if (get().authStage === 'game') {
-         set({ myCharacter: character });
+        set({ myCharacter: character });
       }
     });
 
     socket.on('chat:message', (message) => {
-      set((state) => ({ messages: [...state.messages, message].slice(-50) }));
+      set((state) => ({
+        messages: [...state.messages, message].slice(-MAX_MESSAGES)
+      }));
     });
 
-    socket.on('player:damage', ({ targetId, attackerId, damage, newHp }) => {
+    socket.on('player:damage', ({ targetId, newHp, damage }) => {
       set((state) => {
         const players = { ...state.players };
         if (players[targetId]) {
-          players[targetId].stats.hp = newHp;
+          players[targetId] = {
+            ...players[targetId],
+            stats: { ...players[targetId].stats, hp: newHp }
+          };
         }
-        return { players };
+
+        const notifications = state.myId === targetId
+          ? [
+              ...state.notifications,
+              {
+                id: `${Date.now()}-damage`,
+                message: `Has recibido ${damage} de dano.`,
+                tone: 'danger'
+              }
+            ].slice(-MAX_NOTIFICATIONS)
+          : state.notifications;
+
+        return {
+          players,
+          notifications,
+          myCharacter: state.myId === targetId && state.myCharacter
+            ? {
+                ...state.myCharacter,
+                stats: { ...state.myCharacter.stats, hp: newHp }
+              }
+            : state.myCharacter
+        };
       });
     });
 
@@ -135,10 +251,35 @@ const useGameStore = create((set, get) => ({
       set((state) => {
         const players = { ...state.players };
         if (players[id]) {
-          players[id].position = position;
-          players[id].stats.hp = hp;
+          players[id] = {
+            ...players[id],
+            position,
+            stats: { ...players[id].stats, hp }
+          };
         }
-        return { players };
+
+        const notifications = state.myId === id
+          ? [
+              ...state.notifications,
+              {
+                id: `${Date.now()}-respawn`,
+                message: 'Has resucitado en tu campamento.',
+                tone: 'warning'
+              }
+            ].slice(-MAX_NOTIFICATIONS)
+          : state.notifications;
+
+        return {
+          players,
+          notifications,
+          myCharacter: state.myId === id && state.myCharacter
+            ? {
+                ...state.myCharacter,
+                position,
+                stats: { ...state.myCharacter.stats, hp }
+              }
+            : state.myCharacter
+        };
       });
     });
 
@@ -146,43 +287,56 @@ const useGameStore = create((set, get) => ({
       set((state) => {
         const players = { ...state.players };
         if (players[id]) {
-          players[id].lastAttack = Date.now();
-          if (id === state.myId) audioManager.playSFX('attack'); // Play attack sound
+          players[id] = { ...players[id], lastAttack: Date.now() };
         }
+
+        if (id === state.myId) {
+          audioManager.playSFX('attack');
+        }
+
         return { players };
       });
+    });
+
+    socket.on('player:skillUsed', ({ id, skill }) => {
+      if (id !== get().myId) return;
+      get().pushNotification(`Has usado ${skill}.`, 'info');
     });
   },
 
   attack: () => {
     const { socket } = get();
-    if (socket) {
-      socket.emit('player:attack');
-      // Optimistic sound? Better wait for server ack or event?
-      // player:attacked event handles it for everyone.
-    }
+    if (!socket) return;
+
+    set({
+      lastCombatAction: {
+        id: Date.now(),
+        type: 'attack'
+      }
+    });
+
+    socket.emit('player:attack');
   },
 
   sendMessage: (text) => {
     const { socket } = get();
-    if (socket) {
-      socket.emit('chat:message', text);
+    if (socket && text.trim()) {
+      socket.emit('chat:message', text.trim());
     }
   },
 
   login: (username, password) => {
     const { socket } = get();
     if (!socket) return Promise.resolve({ success: false, error: 'No connection to server' });
-    
+
     return new Promise((resolve) => {
       socket.emit('auth:login', { username, password }, (response) => {
         if (response.success) {
-          set({ 
-            user: { id: response.userId, username }, 
+          set({
+            user: { id: response.userId, username },
             userCharacters: response.characters,
-            authStage: 'char_select' 
+            authStage: 'char_select'
           });
-          // Start music on login success (interaction surely happened)
           audioManager.playBGM('bgm_main');
         }
         resolve(response);
@@ -203,16 +357,14 @@ const useGameStore = create((set, get) => ({
 
   createCharacter: (data) => {
     const { socket, user } = get();
-    if (!socket) return Promise.resolve({ success: false, error: 'No connection' });
+    if (!socket || !user) return Promise.resolve({ success: false, error: 'No connection' });
 
     return new Promise((resolve) => {
       socket.emit('character:create', { ...data, userId: user.id }, (response) => {
         if (response.success && response.character) {
-           // Add new char to local list
-           set(state => ({
-             userCharacters: [...state.userCharacters, response.character],
-             // Don't switch authStage here, component will do it or we can do it here
-           }));
+          set((state) => ({
+            userCharacters: [...state.userCharacters, response.character]
+          }));
         }
         resolve(response);
       });
@@ -226,7 +378,13 @@ const useGameStore = create((set, get) => ({
     return new Promise((resolve) => {
       socket.emit('character:select', { characterId }, (response) => {
         if (response.success) {
-          set({ authStage: 'game' });
+          set({
+            authStage: 'game',
+            isMapOpen: false,
+            isInventoryOpen: false,
+            isSystemMenuOpen: false,
+            activeDialog: null
+          });
         }
         resolve(response);
       });
@@ -235,16 +393,13 @@ const useGameStore = create((set, get) => ({
 
   deleteCharacter: (characterId) => {
     const { socket, user } = get();
-    if (!socket) return Promise.resolve({ success: false, error: 'No connection' });
+    if (!socket || !user) return Promise.resolve({ success: false, error: 'No connection' });
 
     return new Promise((resolve) => {
-      const timeout = setTimeout(() => resolve({ success: false, error: 'Server timeout' }), 5000);
-      
       socket.emit('character:delete', { characterId, userId: user.id }, (response) => {
-        clearTimeout(timeout);
         if (response.success) {
-          set(state => ({
-            userCharacters: state.userCharacters.filter(c => c.id !== characterId)
+          set((state) => ({
+            userCharacters: state.userCharacters.filter((character) => character.id !== characterId)
           }));
         }
         resolve(response);
@@ -252,31 +407,33 @@ const useGameStore = create((set, get) => ({
     });
   },
 
-  joinGame: (name, faction, charClass) => {
-    const { socket } = get();
-    if (!socket) return Promise.resolve({ success: false, error: 'No connection to server' });
-    if (socket) {
-      socket.emit('player:join', { name, faction, charClass });
-    }
-  },
-
   toggleMap: () => {
-    set((state) => ({ isMapOpen: !state.isMapOpen }));
+    set((state) => ({
+      isMapOpen: !state.isMapOpen,
+      isInventoryOpen: false,
+      isSystemMenuOpen: false
+    }));
   },
 
   toggleInventory: () => {
-    set((state) => ({ isInventoryOpen: !state.isInventoryOpen }));
+    set((state) => ({
+      isInventoryOpen: !state.isInventoryOpen,
+      isMapOpen: false,
+      isSystemMenuOpen: false
+    }));
   },
 
   toggleSystemMenu: () => {
-    set((state) => ({ isSystemMenuOpen: !state.isSystemMenuOpen }));
+    set((state) => ({
+      isSystemMenuOpen: !state.isSystemMenuOpen,
+      isMapOpen: false,
+      isInventoryOpen: false
+    }));
   },
 
   talkToNPC: (npcId) => {
     const { socket } = get();
-    if (socket) {
-      socket.emit('player:talk', npcId);
-    }
+    if (socket) socket.emit('player:talk', npcId);
   },
 
   closeDialog: () => {
@@ -285,58 +442,53 @@ const useGameStore = create((set, get) => ({
 
   acceptQuest: (questId) => {
     const { socket } = get();
-    if (socket) {
-      socket.emit('quest:accept', questId);
-    }
+    if (socket) socket.emit('quest:accept', questId);
   },
 
   completeQuest: (questId) => {
     const { socket } = get();
-    if (socket) {
-      socket.emit('quest:complete', questId);
-    }
+    if (socket) socket.emit('quest:complete', questId);
   },
 
   pickupItem: (itemId) => {
     const { socket } = get();
-    if (socket) {
-      socket.emit('player:pickup', itemId);
-    }
+    if (socket) socket.emit('player:pickup', itemId);
   },
 
   useItem: (index) => {
     const { socket } = get();
-    if (socket) {
-      socket.emit('player:useItem', index);
-    }
+    if (socket) socket.emit('player:useItem', index);
   },
 
   castSkill: (slot) => {
     const { socket } = get();
-    if (socket) {
-      socket.emit('player:skill', slot);
-    }
+    if (socket) socket.emit('player:skill', slot);
   },
 
   movePlayer: (position, rotation) => {
     const { socket, myId, players } = get();
-    if (socket && myId) {
-      // Optimistic update
-      const newPlayers = { ...players };
-      if (newPlayers[myId]) {
-        newPlayers[myId].position = position;
-        if (rotation) newPlayers[myId].rotation = rotation;
-        set({ players: newPlayers });
-      }
-      
-      socket.emit('player:move', { position, rotation });
+    if (!socket || !myId) return;
+
+    if (players[myId]) {
+      set((state) => ({
+        players: {
+          ...state.players,
+          [myId]: {
+            ...state.players[myId],
+            position,
+            rotation: rotation || state.players[myId].rotation
+          }
+        }
+      }));
     }
+
+    socket.emit('player:move', { position, rotation });
   },
 
   disconnect: () => {
     const { socket } = get();
     if (socket) socket.disconnect();
   }
-}))
+}));
 
 export default useGameStore;

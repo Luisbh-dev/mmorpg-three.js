@@ -1,28 +1,43 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { Text, Billboard } from '@react-three/drei';
 
 const NPC = ({ id, name, position, faction, type, questId }) => {
-  const color = faction === 'sun' ? '#FFD700' : faction === 'shadow' ? '#9370DB' : '#32CD32';
+  const color = faction === 'sun' ? '#f4c95d' : faction === 'shadow' ? '#8a7dff' : '#57c777';
+  const robeColor = faction === 'sun' ? '#746332' : faction === 'shadow' ? '#2e2541' : '#2f5338';
 
   return (
     <group position={position}>
-      {/* NPC Model (Simple Humanoid) */}
-      <mesh position={[0, 1, 0]}>
-        <boxGeometry args={[0.8, 1.8, 0.5]} />
-        <meshStandardMaterial color={color} />
+      <mesh position={[0, 1.0, 0]} castShadow>
+        <boxGeometry args={[0.8, 1.7, 0.55]} />
+        <meshStandardMaterial color={robeColor} roughness={0.95} />
       </mesh>
-      {/* Head */}
-      <mesh position={[0, 2.2, 0]}>
-        <boxGeometry args={[0.5, 0.5, 0.5]} />
-        <meshStandardMaterial color="#ffccaa" />
+      <mesh position={[0, 1.95, 0]} castShadow>
+        <boxGeometry args={[0.54, 0.54, 0.54]} />
+        <meshStandardMaterial color="#ffd1b3" />
       </mesh>
-
-      {/* Quest Marker */}
+      <mesh position={[0, 2.32, 0]}>
+        <sphereGeometry args={[0.12, 12, 12]} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.4} />
+      </mesh>
+      <mesh position={[0.48, 1.05, 0.32]} rotation={[0, 0, 0.18]} castShadow>
+        <cylinderGeometry args={[0.05, 0.05, 1.9]} />
+        <meshStandardMaterial color="#8b6b4e" />
+      </mesh>
+      <mesh position={[-0.5, 1.0, 0.28]} rotation={[0, 0, -0.22]} castShadow>
+        <cylinderGeometry args={[0.05, 0.05, 1.7]} />
+        <meshStandardMaterial color="#8b6b4e" />
+      </mesh>
       {type === 'quest_giver' && (
-        <Billboard position={[0, 3.5, 0]}>
+        <mesh position={[0, 3.0, 0]}>
+          <torusGeometry args={[0.35, 0.05, 8, 20]} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.75} />
+        </mesh>
+      )}
+      {type === 'quest_giver' && (
+        <Billboard position={[0, 3.45, 0]}>
           <Text
-            fontSize={1}
-            color="yellow"
+            fontSize={0.95}
+            color={color}
             outlineWidth={0.05}
             outlineColor="black"
           >
@@ -30,8 +45,6 @@ const NPC = ({ id, name, position, faction, type, questId }) => {
           </Text>
         </Billboard>
       )}
-
-      {/* Name Tag */}
       <Billboard position={[0, 2.8, 0]}>
         <Text
           fontSize={0.3}
@@ -46,7 +59,7 @@ const NPC = ({ id, name, position, faction, type, questId }) => {
         <Text
           position={[0, -0.3, 0]}
           fontSize={0.2}
-          color="#aaa"
+          color="#c9d3dd"
           anchorX="center"
           anchorY="middle"
         >

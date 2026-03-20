@@ -18,6 +18,39 @@ const io = new Server(httpServer, {
 });
 
 const players = {};
+const WORLD_BOUNDARY = 200;
+const MOBS_LIMIT = 30;
+const CONTROL_POINT_RADIUS = 18;
+const CONTROL_POINT_CAPTURE_RATE = 14;
+const CONTROL_POINT_DAMAGE_BONUS = 0.05;
+const AUTOSAVE_INTERVAL = 15000;
+
+const controlPoints = {
+  sunspire: {
+    id: 'sunspire',
+    name: 'Torre del Alba',
+    position: [0, 1, -28],
+    owner: null,
+    progress: 0,
+    contestingFaction: null
+  },
+  duskfall: {
+    id: 'duskfall',
+    name: 'Bastion del Crepusculo',
+    position: [-30, 1, 18],
+    owner: null,
+    progress: 0,
+    contestingFaction: null
+  },
+  wildroot: {
+    id: 'wildroot',
+    name: 'Raiz Primigenia',
+    position: [30, 1, 18],
+    owner: null,
+    progress: 0,
+    contestingFaction: null
+  }
+};
 
 // --- LOAD CONFIG FROM DB ---
 let FACTION_SPAWNS = {};
@@ -27,7 +60,13 @@ let ITEMS_DB = {};
 let SKILLS_DB = {};
 let QUESTS_DB = {};
 
-function loadConfig() {
+function loadConfig(attempt = 0) {
+  FACTION_SPAWNS = {};
+  CLASS_STATS = {};
+  MOBS_DATA = {};
+  ITEMS_DB = {};
+  SKILLS_DB = {};
+
   db.all('SELECT * FROM factions', (err, rows) => {
     if (rows) {
       rows.forEach(r => {
@@ -53,8 +92,17 @@ function loadConfig() {
     if (rows) {
       rows.forEach(r => {
         MOBS_DATA[r.type] = { 
-          hp: r.hp, dmg: r.dmg, xp: r.xp, speed: r.speed, 
-          range: r.range, zone: r.zone, name: r.name 
+          hp: r.hp,
+          dmg: r.dmg,
+          xp: r.xp,
+          speed: r.speed,
+          range: r.range,
+          zone: r.zone,
+          name: r.name,
+          role: r.role || 'melee',
+          size: r.size || 1,
+          elite: Boolean(r.elite),
+          glow: r.glow || '#ffffff'
         };
       });
       console.log('Loaded Mobs Data:', Object.keys(MOBS_DATA).length);
@@ -65,7 +113,10 @@ function loadConfig() {
     if (rows) {
       rows.forEach(r => {
         ITEMS_DB[r.type] = { 
-          name: r.name, type: r.item_type, effect: r.effect, 
+          itemCode: r.type,
+          name: r.name,
+          itemType: r.item_type,
+          effect: r.effect, 
           value: r.value, color: r.color 
         };
       });
@@ -107,6 +158,14 @@ function loadConfig() {
         rewards: { xp: 110, gold: 55 }
     }
   };
+
+  if (attempt < 5) {
+    setTimeout(() => {
+      if (!Object.keys(CLASS_STATS).length || !Object.keys(MOBS_DATA).length || !Object.keys(ITEMS_DB).length) {
+        loadConfig(attempt + 1);
+      }
+    }, 300);
+  }
 }
 
 loadConfig(); // Start loading
@@ -114,10 +173,335 @@ loadConfig(); // Start loading
 const mobs = {};
 const items = {}; // Dropped items on the ground
 const npcs = {}; // Quest givers and shops
-const MOBS_LIMIT = 30;
 
 function getXpForLevel(level) {
   return Math.floor(100 * Math.pow(1.5, level - 1));
+}
+
+function parseJSONSafe(value, fallback) {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function distance2D(a, b) {
+  const dx = a[0] - b[0];
+  const dz = a[2] - b[2];
+  return Math.sqrt(dx * dx + dz * dz);
+}
+
+function clampPosition(position) {
+  return [
+    Math.max(-WORLD_BOUNDARY, Math.min(WORLD_BOUNDARY, position[0])),
+    position[1],
+    Math.max(-WORLD_BOUNDARY, Math.min(WORLD_BOUNDARY, position[2]))
+  ];
+}
+
+function buildCombatStats(charClass, level = 1) {
+  const baseStats = CLASS_STATS[charClass] || { hp: 100, dmg: 10, range: 2 };
+  let maxHp = baseStats.hp;
+  let dmg = baseStats.dmg;
+
+  for (let currentLevel = 1; currentLevel < level; currentLevel += 1) {
+    maxHp = Math.floor(maxHp * 1.1);
+    dmg = Math.floor(dmg * 1.1);
+  }
+
+  return {
+    hp: maxHp,
+    maxHp,
+    dmg,
+    range: baseStats.range
+  };
+}
+
+function getFactionLabel(faction) {
+  if (faction === 'sun') return 'Orden del Sol';
+  if (faction === 'shadow') return 'Pacto de la Sombra';
+  if (faction === 'nature') return 'Alianza de la Naturaleza';
+  return faction || 'Sin faccion';
+}
+
+function emitSystemMessage(text, target = io) {
+  target.emit('chat:message', {
+    id: uuidv4(),
+    playerName: 'SISTEMA',
+    text,
+    timestamp: Date.now(),
+    faction: 'system'
+  });
+}
+
+function emitWorldState(target = io) {
+  target.emit('world:state', {
+    controlPoints,
+    quests: QUESTS_DB,
+    skills: SKILLS_DB
+  });
+}
+
+function getFactionControlCount(faction) {
+  return Object.values(controlPoints).filter((point) => point.owner === faction).length;
+}
+
+function getFactionDamageMultiplier(faction) {
+  return 1 + (getFactionControlCount(faction) * CONTROL_POINT_DAMAGE_BONUS);
+}
+
+function savePlayer(socketId) {
+  const player = players[socketId];
+  if (!player?.dbId) return;
+
+  db.run(
+    `
+      UPDATE characters
+      SET hp = ?, max_hp = ?, level = ?, xp = ?, gold = ?,
+          position_x = ?, position_y = ?, position_z = ?, rotation_y = ?, quests_json = ?
+      WHERE id = ?
+    `,
+    [
+      player.stats.hp,
+      player.stats.maxHp,
+      player.stats.level,
+      player.stats.xp,
+      player.gold || 0,
+      player.position[0],
+      player.position[1],
+      player.position[2],
+      player.rotation?.[1] || 0,
+      JSON.stringify(player.quests || {}),
+      player.dbId
+    ]
+  );
+
+  db.run(
+    `
+      INSERT INTO inventory (character_id, items)
+      VALUES (?, ?)
+      ON CONFLICT(character_id) DO UPDATE SET items = excluded.items
+    `,
+    [player.dbId, JSON.stringify(player.inventory || [])]
+  );
+}
+
+function respawnPlayer(player) {
+  const spawn = FACTION_SPAWNS[player.faction] || [0, 1, 0];
+  player.position = [
+    spawn[0] + (Math.random() * 4 - 2),
+    spawn[1],
+    spawn[2] + (Math.random() * 4 - 2)
+  ];
+  player.stats.hp = player.stats.maxHp;
+  return player.position;
+}
+
+function applyLevelUps(player) {
+  let leveledUp = false;
+
+  while (player.stats.xp >= player.stats.maxXp) {
+    player.stats.xp -= player.stats.maxXp;
+    player.stats.level += 1;
+    player.stats.maxXp = getXpForLevel(player.stats.level);
+    player.stats.maxHp = Math.floor(player.stats.maxHp * 1.1);
+    player.stats.hp = player.stats.maxHp;
+    player.stats.dmg = Math.floor(player.stats.dmg * 1.1);
+    leveledUp = true;
+  }
+
+  return leveledUp;
+}
+
+function updateQuestProgress(player, mobType) {
+  if (!player?.quests) return;
+
+  let changed = false;
+  Object.entries(player.quests).forEach(([questId, questState]) => {
+    const questData = QUESTS_DB[questId];
+    if (!questData || questState.completed || questData.targetType !== mobType) return;
+
+    if (questState.progress < questData.targetCount) {
+      questState.progress += 1;
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    io.emit('players:update', players);
+    savePlayer(player.id);
+
+    Object.entries(player.quests).forEach(([questId, questState]) => {
+      const questData = QUESTS_DB[questId];
+      if (!questData || questState.completed) return;
+      if (questState.progress >= questData.targetCount) {
+        emitSystemMessage(`Mision lista para entregar: ${questData.title}`, io.to(player.id));
+      }
+    });
+  }
+}
+
+function awardMobKill(attacker, mobId) {
+  const mob = mobs[mobId];
+  if (!attacker || !mob) return;
+
+  attacker.stats.xp += (mob.xpReward || 10);
+  updateQuestProgress(attacker, mob.type);
+
+  const leveledUp = applyLevelUps(attacker);
+
+  io.emit('player:exp', {
+    id: attacker.id,
+    xp: attacker.stats.xp,
+    maxXp: attacker.stats.maxXp,
+    level: attacker.stats.level
+  });
+
+  if (leveledUp) {
+    io.emit('player:levelup', {
+      id: attacker.id,
+      level: attacker.stats.level,
+      stats: attacker.stats
+    });
+  }
+
+  if (Math.random() < 0.3) {
+    spawnItem(mob.position, 'potion_hp');
+  }
+  if (Math.random() < 0.5) {
+    spawnItem(mob.position, 'gold');
+  }
+
+  delete mobs[mobId];
+  io.emit('mobs:update', mobs);
+  savePlayer(attacker.id);
+}
+
+function findNearestEnemyPlayer(attacker, range) {
+  let target = null;
+  let minDistance = range;
+
+  Object.values(players).forEach((candidate) => {
+    if (candidate.id === attacker.id) return;
+    if (candidate.faction === attacker.faction) return;
+    if (candidate.stats.hp <= 0) return;
+
+    const dist = distance2D(attacker.position, candidate.position);
+    if (dist <= minDistance) {
+      minDistance = dist;
+      target = candidate;
+    }
+  });
+
+  return target;
+}
+
+function findNearestMob(position, range) {
+  let mob = null;
+  let minDistance = range;
+
+  Object.values(mobs).forEach((candidate) => {
+    const dist = distance2D(position, candidate.position);
+    if (dist <= minDistance) {
+      minDistance = dist;
+      mob = candidate;
+    }
+  });
+
+  return mob;
+}
+
+function applyDamageToPlayer(attackerId, target, damage) {
+  target.stats.hp -= damage;
+  io.emit('player:damage', {
+    targetId: target.id,
+    attackerId,
+    damage,
+    newHp: target.stats.hp
+  });
+
+  if (target.stats.hp <= 0) {
+    const position = respawnPlayer(target);
+    io.emit('player:respawn', { id: target.id, position, hp: target.stats.hp });
+    savePlayer(target.id);
+  }
+}
+
+function applyDamageToMob(attacker, mobId, damage) {
+  const mob = mobs[mobId];
+  if (!mob) return false;
+
+  mob.hp -= damage;
+  io.emit('mob:damage', { mobId, damage, newHp: mob.hp });
+
+  if (mob.hp <= 0) {
+    awardMobKill(attacker, mobId);
+    return true;
+  }
+
+  return false;
+}
+
+function updateControlPoints() {
+  let changed = false;
+
+  Object.values(controlPoints).forEach((point) => {
+    const nearby = Object.values(players).filter((player) => {
+      return player.stats.hp > 0 && distance2D(player.position, point.position) <= CONTROL_POINT_RADIUS;
+    });
+
+    const factionsPresent = [...new Set(nearby.map((player) => player.faction))];
+
+    if (factionsPresent.length === 1) {
+      const activeFaction = factionsPresent[0];
+      const pressure = nearby.length;
+
+      if (point.owner === activeFaction) {
+        if (point.progress !== 100 || point.contestingFaction) {
+          point.progress = 100;
+          point.contestingFaction = null;
+          changed = true;
+        }
+        return;
+      }
+
+      if (point.contestingFaction && point.contestingFaction !== activeFaction) {
+        point.progress = Math.max(0, point.progress - (CONTROL_POINT_CAPTURE_RATE * pressure));
+        changed = true;
+
+        if (point.progress === 0) {
+          point.contestingFaction = activeFaction;
+        }
+        return;
+      }
+
+      point.contestingFaction = activeFaction;
+      point.progress = Math.min(100, point.progress + (CONTROL_POINT_CAPTURE_RATE * pressure));
+      changed = true;
+
+      if (point.progress >= 100) {
+        point.owner = activeFaction;
+        point.progress = 100;
+        point.contestingFaction = null;
+        emitSystemMessage(`${getFactionLabel(activeFaction)} ha conquistado ${point.name}. Bonus de dano global +5%.`);
+      }
+      return;
+    }
+
+    if (factionsPresent.length === 0 && point.contestingFaction) {
+      point.progress = Math.max(0, point.progress - (CONTROL_POINT_CAPTURE_RATE / 2));
+      changed = true;
+
+      if (point.progress === 0) {
+        point.contestingFaction = null;
+      }
+    }
+  });
+
+  if (changed) {
+    io.emit('controlPoints:update', controlPoints);
+  }
 }
 
 // Initialize NPCs
@@ -137,12 +521,19 @@ function spawnNPCs() {
 spawnNPCs();
 
 function spawnItem(pos, type) {
+  const itemData = ITEMS_DB[type];
+  if (!itemData) return;
+
   const id = uuidv4();
   items[id] = {
     id,
-    type,
+    itemCode: itemData.itemCode,
+    itemType: itemData.itemType,
     position: [pos[0], 2.0, pos[2]], // Float higher to avoid clipping terrain
-    ...ITEMS_DB[type]
+    name: itemData.name,
+    effect: itemData.effect,
+    value: itemData.value,
+    color: itemData.color
   };
   io.emit('items:update', items);
 }
@@ -151,6 +542,7 @@ function spawnMob() {
   if (Object.keys(mobs).length >= MOBS_LIMIT) return;
 
   const types = Object.keys(MOBS_DATA);
+  if (!types.length) return;
   const type = types[Math.floor(Math.random() * types.length)];
   const data = MOBS_DATA[type];
   
@@ -177,8 +569,16 @@ function spawnMob() {
     maxHp: data.hp,
     dmg: data.dmg,
     xpReward: data.xp,
+    speed: data.speed,
+    range: data.range,
+    role: data.role || 'melee',
+    size: data.size || 1,
+    elite: Boolean(data.elite),
+    glow: data.glow || '#ffffff',
     position: pos,
     rotation: Math.random() * Math.PI * 2,
+    spawnPoint: [...pos],
+    aggroRange: data.role === 'ranged' ? 28 : data.role === 'caster' ? 32 : data.role === 'ambusher' ? 26 : 20,
     targetId: null,
     lastAttack: 0
   };
@@ -195,67 +595,63 @@ setInterval(() => {
   mobIds.forEach(id => {
     const mob = mobs[id];
     const stats = MOBS_DATA[mob.type];
+    if (!stats) return;
     
     // 1. Find Target
     let closestPlayer = null;
-    let minDist = 200;
+    let minDist = mob.aggroRange || 20;
 
     Object.values(players).forEach(p => {
       if (p.stats.hp <= 0) return; // Don't target dead
       const dx = p.position[0] - mob.position[0];
       const dz = p.position[2] - mob.position[2];
       const dist = Math.sqrt(dx*dx + dz*dz);
-      if (dist < 20 && dist < minDist) { // Aggro range 20
+      if (dist < minDist) {
         minDist = dist;
         closestPlayer = p;
       }
     });
 
     if (closestPlayer) {
-      // Chase
       const dx = closestPlayer.position[0] - mob.position[0];
       const dz = closestPlayer.position[2] - mob.position[2];
       const dist = Math.sqrt(dx*dx + dz*dz);
 
-      if (dist > 1.5) { // Move if not in range
-        const speed = stats.speed;
-        mob.position[0] += (dx / dist) * speed;
-        mob.position[2] += (dz / dist) * speed;
+      const moveSpeed = (stats.speed || mob.speed || 0.15) * (stats.elite ? 1.15 : 1);
+      const meleeRange = Math.max(1.4, stats.range || mob.range || 2);
+      const desiredDistance = stats.role === 'ranged' ? 9 : stats.role === 'caster' ? 11 : meleeRange;
+
+      if (dist > desiredDistance) {
+        mob.position[0] += (dx / dist) * moveSpeed;
+        mob.position[2] += (dz / dist) * moveSpeed;
+        mob.rotation = Math.atan2(dx, dz);
+        updateNeeded = true;
+      } else if (stats.role === 'ranged' || stats.role === 'caster') {
+        if (dist < desiredDistance * 0.7) {
+          mob.position[0] -= (dx / dist) * (moveSpeed * 0.65);
+          mob.position[2] -= (dz / dist) * (moveSpeed * 0.65);
+          mob.rotation = Math.atan2(dx, dz);
+          updateNeeded = true;
+        }
+      } else if (stats.role === 'ambusher' && dist > meleeRange) {
+        mob.position[0] += (dx / dist) * (moveSpeed * 1.25);
+        mob.position[2] += (dz / dist) * (moveSpeed * 1.25);
         mob.rotation = Math.atan2(dx, dz);
         updateNeeded = true;
       }
 
-      // Attack
-      if (dist <= stats.range && Date.now() - mob.lastAttack > 1500) {
+      if (dist <= meleeRange && Date.now() - mob.lastAttack > (stats.role === 'brute' || stats.elite ? 1200 : 1500)) {
         mob.lastAttack = Date.now();
-        closestPlayer.stats.hp -= stats.dmg;
-        io.emit('player:damage', { 
-          targetId: closestPlayer.id, 
-          attackerId: mob.id, 
-          damage: stats.dmg, 
-          newHp: closestPlayer.stats.hp,
-          isMob: true
-        });
-        
-        // Respawn player if dead logic is handled in attack event usually, but here too
-        if (closestPlayer.stats.hp <= 0) {
-           // ... respawn logic reused or function extracted
-           const spawn = FACTION_SPAWNS[closestPlayer.faction];
-           closestPlayer.position = [
-            spawn[0] + (Math.random() * 4 - 2),
-            spawn[1],
-            spawn[2] + (Math.random() * 4 - 2)
-          ];
-          closestPlayer.stats.hp = closestPlayer.stats.maxHp;
-          io.emit('player:respawn', { id: closestPlayer.id, position: closestPlayer.position, hp: closestPlayer.stats.hp });
-        }
+        const attackDamage = Math.max(1, Math.round(stats.dmg * (stats.elite ? 1.25 : 1)));
+        applyDamageToPlayer(mob.id, closestPlayer, attackDamage);
       }
     } else {
       // Idle wander (simple jitter)
       if (Math.random() < 0.05) {
-        mob.rotation += (Math.random() - 0.5);
-        mob.position[0] += Math.sin(mob.rotation) * 0.5;
-        mob.position[2] += Math.cos(mob.rotation) * 0.5;
+        const wanderSpeed = (stats.speed || 0.15) * 0.75;
+        mob.rotation += (Math.random() - 0.5) * 0.8;
+        mob.position[0] += Math.sin(mob.rotation) * wanderSpeed;
+        mob.position[2] += Math.cos(mob.rotation) * wanderSpeed;
         updateNeeded = true;
       }
     }
@@ -266,6 +662,16 @@ setInterval(() => {
   }
 }, 100); // 10 ticks per second
 
+setInterval(() => {
+  updateControlPoints();
+}, 1000);
+
+setInterval(() => {
+  Object.keys(players).forEach((playerId) => {
+    savePlayer(playerId);
+  });
+}, AUTOSAVE_INTERVAL);
+
 io.on('connection', (socket) => {
   console.log('Player connected:', socket.id);
 
@@ -275,6 +681,8 @@ io.on('connection', (socket) => {
   socket.emit('mobs:update', mobs);
   socket.emit('items:update', items);
   socket.emit('npcs:update', npcs);
+  emitWorldState(socket);
+  socket.emit('controlPoints:update', controlPoints);
 
   // --- AUTHENTICATION ---
 
@@ -296,7 +704,12 @@ io.on('connection', (socket) => {
         if (result) {
           // Fetch characters
           db.all('SELECT * FROM characters WHERE user_id = ?', [user.id], (err, rows) => {
-            callback({ success: true, userId: user.id, characters: rows });
+            const characters = (rows || []).map((character) => ({
+              ...character,
+              quests: parseJSONSafe(character.quests_json, {})
+            }));
+
+            callback({ success: true, userId: user.id, characters });
           });
         } else {
           callback({ error: 'Invalid credentials' });
@@ -324,9 +737,9 @@ io.on('connection', (socket) => {
     }
 
     db.run(`
-      INSERT INTO characters (user_id, name, faction, class, hp, max_hp, position_x, position_y, position_z, level, xp, gold)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0)
-    `, [userId, name, faction, charClass, stats.hp, stats.hp, spawn[0], spawn[1], spawn[2]], function(err) {
+      INSERT INTO characters (user_id, name, faction, class, hp, max_hp, position_x, position_y, position_z, level, xp, gold, quests_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 0, ?)
+    `, [userId, name, faction, charClass, stats.hp, stats.hp, spawn[0], spawn[1], spawn[2], '{}'], function(err) {
       if (err) {
         console.error('DB Error create character:', err.message);
         return callback({ error: 'Name taken or server error' });
@@ -349,7 +762,8 @@ io.on('connection', (socket) => {
         max_hp: stats.hp,
         xp: 0,
         gold: 0,
-        quests: {}, // { questId: { progress: 0, completed: false } }
+        quests: {},
+        quests_json: '{}',
         position_x: spawn[0],
         position_y: spawn[1],
         position_z: spawn[2]
@@ -379,8 +793,9 @@ io.on('connection', (socket) => {
 
       try {
         console.log('Character found:', char.name);
-        const inventory = JSON.parse(char.inventoryJson || '[]');
-        const stats = CLASS_STATS[char.class] || { hp: 100, dmg: 10, range: 2 };
+        const inventory = parseJSONSafe(char.inventoryJson, []);
+        const stats = buildCombatStats(char.class, char.level || 1);
+        const quests = parseJSONSafe(char.quests_json, {});
 
         // Add to active players
         players[socket.id] = {
@@ -398,9 +813,11 @@ io.on('connection', (socket) => {
             maxXp: getXpForLevel(char.level || 1)
           },
           inventory: inventory,
+          quests,
           gold: char.gold,
           position: [char.position_x, char.position_y, char.position_z],
-          rotation: [0, char.rotation_y, 0]
+          rotation: [0, char.rotation_y, 0],
+          cooldowns: {}
         };
 
         console.log('Player added to world. Broadcasting...');
@@ -411,6 +828,7 @@ io.on('connection', (socket) => {
         
         // Send current state
         socket.emit('players:update', players);
+        emitSystemMessage('Controla las fortalezas del centro para dar bonus de dano a tu faccion.', socket);
         
         callback({ success: true });
       } catch (e) {
@@ -418,6 +836,35 @@ io.on('connection', (socket) => {
         callback({ error: 'Server logic error' });
       }
     });
+  });
+
+  socket.on('character:delete', ({ characterId, userId }, callback) => {
+    db.get(
+      'SELECT id FROM characters WHERE id = ? AND user_id = ?',
+      [characterId, userId],
+      (lookupError, row) => {
+        if (lookupError) {
+          return callback({ error: 'Unable to verify character' });
+        }
+
+        if (!row) {
+          return callback({ error: 'Character not found' });
+        }
+
+        db.run('DELETE FROM inventory WHERE character_id = ?', [characterId]);
+        db.run(
+          'DELETE FROM characters WHERE id = ? AND user_id = ?',
+          [characterId, userId],
+          function deleteCharacterRun(error) {
+            if (error) {
+              return callback({ error: 'Unable to delete character' });
+            }
+
+            callback({ success: true });
+          }
+        );
+      }
+    );
   });
 
   // Removed old player:join listener
@@ -477,7 +924,8 @@ io.on('connection', (socket) => {
 
   socket.on('quest:accept', (questId) => {
     const player = players[socket.id];
-    if (!player || !player.quests) return;
+    if (!player) return;
+    if (!player.quests) player.quests = {};
     
     // Add quest
     if (!player.quests[questId]) {
@@ -538,8 +986,7 @@ io.on('connection', (socket) => {
         const dist = Math.sqrt(dx*dx + dz*dz);
         
         if (dist < 3) { // Pickup range
-          // Check type from DB or item object.
-          const isGold = item.type === 'currency' || (ITEMS_DB['gold'] && item.name === ITEMS_DB['gold'].name) || item.type === 'gold';
+          const isGold = item.itemType === 'currency';
 
           if (isGold) {
             player.gold = (player.gold || 0) + item.value;
@@ -567,7 +1014,7 @@ io.on('connection', (socket) => {
 
     const item = player.inventory[index];
 
-    if (item.type === 'consumable' && item.effect === 'heal') {
+    if (item.itemType === 'consumable' && item.effect === 'heal') {
       // Heal logic
       const healAmount = item.value || 50;
       player.stats.hp = Math.min(player.stats.hp + healAmount, player.stats.maxHp);
@@ -577,6 +1024,7 @@ io.on('connection', (socket) => {
       
       // Notify
       io.emit('players:update', players);
+      savePlayer(socket.id);
       // Optional: Emit a healing effect event for visuals
     }
   });
@@ -613,20 +1061,36 @@ io.on('connection', (socket) => {
         player.position[2] -= Math.cos(angle) * dist;
         
         // Validate bounds
-        const BOUNDARY = 200;
-        if (player.position[0] > BOUNDARY) player.position[0] = BOUNDARY;
-        if (player.position[0] < -BOUNDARY) player.position[0] = -BOUNDARY;
-        if (player.position[2] > BOUNDARY) player.position[2] = BOUNDARY;
-        if (player.position[2] < -BOUNDARY) player.position[2] = -BOUNDARY;
+        player.position = clampPosition(player.position);
+      } else if (skill.type === 'damage') {
+        const damage = Math.max(1, Math.round(skill.value * getFactionDamageMultiplier(player.faction)));
+        const skillRange = skill.range || player.stats.range + 2;
+        const targetPlayer = findNearestEnemyPlayer(player, skillRange);
+        const targetMob = findNearestMob(player.position, skillRange);
 
+        if (targetPlayer && (!targetMob || distance2D(player.position, targetPlayer.position) <= distance2D(player.position, targetMob.position))) {
+          applyDamageToPlayer(player.id, targetPlayer, damage);
+        } else if (targetMob) {
+          applyDamageToMob(player, targetMob.id, damage);
+        }
       } else if (skill.type === 'drain') {
-         // Damage closest enemy and heal
-         // Simplified: just find one
-         // ...
+        const targetPlayer = findNearestEnemyPlayer(player, skill.range || 8);
+        const targetMob = findNearestMob(player.position, skill.range || 8);
+        const drainDamage = Math.max(1, Math.round(skill.value * getFactionDamageMultiplier(player.faction)));
+        const healAmount = Math.floor(drainDamage * 0.75);
+
+        if (targetPlayer && (!targetMob || distance2D(player.position, targetPlayer.position) <= distance2D(player.position, targetMob.position))) {
+          applyDamageToPlayer(player.id, targetPlayer, drainDamage);
+          player.stats.hp = Math.min(player.stats.hp + healAmount, player.stats.maxHp);
+        } else if (targetMob) {
+          applyDamageToMob(player, targetMob.id, drainDamage);
+          player.stats.hp = Math.min(player.stats.hp + healAmount, player.stats.maxHp);
+        }
       }
 
       io.emit('players:update', players);
       io.emit('player:skillUsed', { id: socket.id, skill: skill.name, type: skill.type });
+      savePlayer(socket.id);
     }
   });
 
@@ -635,7 +1099,7 @@ io.on('connection', (socket) => {
     if (!attacker) return;
 
     const range = attacker.stats.range;
-    const dmg = attacker.stats.dmg;
+    const dmg = Math.max(1, Math.round(attacker.stats.dmg * getFactionDamageMultiplier(attacker.faction)));
     
     // Broadcast attack start for animation
     io.emit('player:attacked', { id: socket.id });
@@ -653,28 +1117,7 @@ io.on('connection', (socket) => {
       const dist = Math.sqrt(dx*dx + dz*dz);
 
       if (dist <= range) {
-        // Hit!
-        target.stats.hp -= dmg;
-        
-        // Notify everyone of the hit/damage
-        io.emit('player:damage', { 
-          targetId: target.id, 
-          attackerId: attacker.id, 
-          damage: dmg,
-          newHp: target.stats.hp
-        });
-
-        if (target.stats.hp <= 0) {
-          // Respawn logic
-          const spawn = FACTION_SPAWNS[target.faction];
-          target.position = [
-            spawn[0] + (Math.random() * 4 - 2),
-            spawn[1],
-            spawn[2] + (Math.random() * 4 - 2)
-          ];
-          target.stats.hp = target.stats.maxHp;
-          io.emit('player:respawn', { id: target.id, position: target.position, hp: target.stats.hp });
-        }
+        applyDamageToPlayer(attacker.id, target, dmg);
       }
     });
 
@@ -686,60 +1129,12 @@ io.on('connection', (socket) => {
       const dist = Math.sqrt(dx*dx + dz*dz);
 
       if (dist <= range) {
-        mob.hp -= dmg;
-        io.emit('mob:damage', { mobId, damage: dmg, newHp: mob.hp });
-
-        if (mob.hp <= 0) {
-           // XP Reward
-           if (attacker) {
-             attacker.stats.xp += (mob.xpReward || 10);
-             
-             // Level Up Logic
-             let leveledUp = false;
-             while (attacker.stats.xp >= attacker.stats.maxXp) {
-               attacker.stats.xp -= attacker.stats.maxXp;
-               attacker.stats.level += 1;
-               attacker.stats.maxXp = getXpForLevel(attacker.stats.level);
-               
-               // Stat increase
-               attacker.stats.maxHp = Math.floor(attacker.stats.maxHp * 1.1);
-               attacker.stats.hp = attacker.stats.maxHp; // Heal on level up
-               attacker.stats.dmg = Math.floor(attacker.stats.dmg * 1.1);
-               
-               leveledUp = true;
-             }
-
-             io.emit('player:exp', { 
-               id: attacker.id, 
-               xp: attacker.stats.xp, 
-               maxXp: attacker.stats.maxXp, 
-               level: attacker.stats.level 
-             });
-
-             if (leveledUp) {
-               io.emit('player:levelup', { 
-                 id: attacker.id, 
-                 level: attacker.stats.level,
-                 stats: attacker.stats
-               });
-             }
-           }
-
-           // Loot Drop
-           if (Math.random() < 0.3) {
-             spawnItem(mob.position, 'potion_hp');
-           }
-           if (Math.random() < 0.5) {
-             spawnItem(mob.position, 'gold');
-           }
-
-           delete mobs[mobId];
-           io.emit('mobs:update', mobs); 
-        }
+        applyDamageToMob(attacker, mobId, dmg);
       }
     });
 
     io.emit('players:update', players);
+    savePlayer(socket.id);
   });
 
   socket.on('chat:message', (msg) => {
@@ -759,6 +1154,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('Player disconnected:', socket.id);
+    savePlayer(socket.id);
     delete players[socket.id];
     io.emit('players:update', players);
   });
@@ -767,15 +1163,8 @@ io.on('connection', (socket) => {
   socket.on('player:move', (data) => {
     if (players[socket.id]) {
       let pos = data.position;
-      
-      // Server-side validation for boundaries
-      const BOUNDARY = 200;
-      if (pos[0] > BOUNDARY) pos[0] = BOUNDARY;
-      if (pos[0] < -BOUNDARY) pos[0] = -BOUNDARY;
-      if (pos[2] > BOUNDARY) pos[2] = BOUNDARY;
-      if (pos[2] < -BOUNDARY) pos[2] = -BOUNDARY;
 
-      players[socket.id].position = pos;
+      players[socket.id].position = clampPosition(pos);
       if (data.rotation) players[socket.id].rotation = data.rotation;
       
       socket.broadcast.emit('players:update', players);

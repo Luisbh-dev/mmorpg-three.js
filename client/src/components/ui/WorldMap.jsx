@@ -1,21 +1,24 @@
 import React, { useEffect, useRef } from 'react';
 import useGameStore from '../../stores/useGameStore';
+import { LANDMARKS, MAP_RADIUS, WAR_ZONE_RADIUS, getFactionMeta, getLandmarkColor } from '../../lib/gameData';
 
 const WorldMap = () => {
-  const { players, mobs, myId, isMapOpen, toggleMap } = useGameStore();
+  const players = useGameStore((state) => state.players);
+  const mobs = useGameStore((state) => state.mobs);
+  const controlPoints = useGameStore((state) => state.controlPoints);
+  const isMapOpen = useGameStore((state) => state.isMapOpen);
+  const toggleMap = useGameStore((state) => state.toggleMap);
+  const myId = useGameStore((state) => state.myId);
   const canvasRef = useRef(null);
 
-  const MAP_SIZE = 200; // Radius of the game world
-  const CANVAS_SIZE = 600; // Size of the map on screen
-
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-
-      if (e.code === 'KeyM') {
+    const handleKeyDown = (event) => {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+      if (event.code === 'KeyM') {
         toggleMap();
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleMap]);
@@ -25,166 +28,178 @@ const WorldMap = () => {
 
     const canvas = canvasRef.current;
     if (!canvas) return;
+
     const ctx = canvas.getContext('2d');
-    
-    // Clear
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    // Scale world coord (200) to canvas coord (300) -> 1.5
-    const scale = (canvas.width / 2) / MAP_SIZE; 
-
-    // 1. Draw Background Areas
-    // We need to replicate the logic from Terrain.jsx roughly
-    
-    // Fill background (Ocean/Void)
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Loop pixels roughly? No, let's draw shapes.
-    
-    // Draw World Circle
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, MAP_SIZE * scale, 0, 2 * Math.PI);
-    ctx.fillStyle = '#333';
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#666';
-    ctx.stroke();
-
-    // Function to map world to canvas
+    const width = canvas.width;
+    const height = canvas.height;
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = (width / 2) - 20;
+    const scale = radius / MAP_RADIUS;
     const toCanvas = (x, z) => ({
-      x: centerX + x * scale,
-      y: centerY + z * scale
+      x: centerX + (x * scale),
+      y: centerY + (z * scale)
     });
 
-    // -- ZONES --
-    
-    // War Zone (Center)
+    ctx.clearRect(0, 0, width, height);
+
+    const background = ctx.createRadialGradient(centerX, centerY, 60, centerX, centerY, radius);
+    background.addColorStop(0, '#1f2730');
+    background.addColorStop(1, '#0b0e12');
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, width, height);
+
     ctx.beginPath();
-    ctx.arc(centerX, centerY, 60 * scale, 0, 2 * Math.PI);
-    ctx.fillStyle = 'rgba(100, 100, 100, 0.5)';
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#d9ccb4';
     ctx.fill();
-    ctx.strokeStyle = '#aa0000';
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#33281d';
     ctx.stroke();
-    
-    // Sun Faction (North: Z < -50, X between -150 and 150)
-    // In 2D canvas Y is Z. So Y < -50 (up)
-    // Wait, canvas Y grows down. World Z grows South (positive).
-    // World North is -Z. 
-    // So North is Canvas Up (Negative Y relative to center). Correct.
-    
-    // Sun Zone Poly
+    ctx.save();
     ctx.beginPath();
-    // Approximate shape: Trapezoid or Arc sector
-    // Let's just draw a big rect for simplicity clipped by circle in mind, or just label it
-    // Rect: x: -150 to 150, z: -200 to -50
-    const sunP1 = toCanvas(-150, -200);
-    const sunP2 = toCanvas(150, -50);
-    ctx.fillStyle = 'rgba(255, 215, 0, 0.2)'; // Gold
-    ctx.fillRect(sunP1.x, sunP1.y, sunP2.x - sunP1.x, sunP2.y - sunP1.y);
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+    ctx.clip();
 
-    // Shadow Faction (South West: X < -50, Z > 50)
-    const shadowP1 = toCanvas(-200, 50);
-    const shadowP2 = toCanvas(-50, 200);
-    ctx.fillStyle = 'rgba(75, 0, 130, 0.2)'; // Indigo
-    ctx.fillRect(shadowP1.x, shadowP1.y, shadowP2.x - shadowP1.x, shadowP2.y - shadowP1.y);
-
-    // Nature Faction (South East: X > 50, Z > 50)
-    const natureP1 = toCanvas(50, 50);
-    const natureP2 = toCanvas(200, 200);
-    ctx.fillStyle = 'rgba(34, 139, 34, 0.2)'; // Forest Green
-    ctx.fillRect(natureP1.x, natureP1.y, natureP2.x - natureP1.x, natureP2.y - natureP1.y);
-
-
-    // -- LABELS --
-    ctx.font = 'bold 16px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = 'white';
-    ctx.shadowColor = 'black';
-    ctx.shadowBlur = 4;
-    
-    ctx.fillText('ZONA DE GUERRA', centerX, centerY);
-    
-    const sunPos = toCanvas(0, -120);
-    ctx.fillStyle = '#FFD700';
-    ctx.fillText('TIERRAS DEL SOL', sunPos.x, sunPos.y);
-
-    const shadowPos = toCanvas(-120, 120);
-    ctx.fillStyle = '#d8b0ff';
-    ctx.fillText('PACTO DE SOMBRA', shadowPos.x, shadowPos.y);
-
-    const naturePos = toCanvas(120, 120);
-    ctx.fillStyle = '#7CFC00';
-    ctx.fillText('BOSQUE ANCESTRAL', naturePos.x, naturePos.y);
-
-    // -- ENTITIES --
-    
-    // Mobs
-    if (mobs) {
-      Object.values(mobs).forEach(m => {
-        const pos = toCanvas(m.position[0], m.position[2]);
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 3, 0, 2 * Math.PI);
-        ctx.fillStyle = '#ff4444';
-        ctx.fill();
-      });
-    }
-
-    // Players
-    Object.values(players).forEach(p => {
-      const pos = toCanvas(p.position[0], p.position[2]);
-      
-      // Direction cone?
-      // ctx.beginPath();
-      // ctx.moveTo(pos.x, pos.y);
-      // ctx.arc(pos.x, pos.y, 10, ... )
-      
+    const drawRegion = (points, fillStyle) => {
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 5, 0, 2 * Math.PI);
-      
-      if (p.id === myId) {
-        ctx.fillStyle = '#00ffff';
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        
-        // Flash effect for me
-        ctx.beginPath();
-        ctx.arc(pos.x, pos.y, 10, 0, 2 * Math.PI);
-        ctx.strokeStyle = `rgba(0, 255, 255, ${Math.abs(Math.sin(Date.now() / 200))})`;
-        ctx.stroke();
-      } else {
-        if (p.faction === 'sun') ctx.fillStyle = '#FFD700';
-        else if (p.faction === 'shadow') ctx.fillStyle = '#4B0082';
-        else if (p.faction === 'nature') ctx.fillStyle = '#228B22';
-        else ctx.fillStyle = 'red';
-      }
+      points.forEach((point, index) => {
+        const canvasPoint = toCanvas(point[0], point[1]);
+        if (index === 0) ctx.moveTo(canvasPoint.x, canvasPoint.y);
+        else ctx.lineTo(canvasPoint.x, canvasPoint.y);
+      });
+      ctx.closePath();
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+    };
+
+    drawRegion([[-150, -200], [150, -200], [150, -50], [-150, -50]], 'rgba(244, 201, 93, 0.28)');
+    drawRegion([[-200, 50], [-50, 50], [-50, 200], [-200, 200]], 'rgba(138, 125, 255, 0.28)');
+    drawRegion([[50, 50], [200, 50], [200, 200], [50, 200]], 'rgba(87, 199, 119, 0.28)');
+
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, WAR_ZONE_RADIUS * scale, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(173, 102, 82, 0.35)';
+    ctx.fill();
+    ctx.strokeStyle = '#7f2e25';
+    ctx.stroke();
+
+    ctx.font = 'bold 16px Segoe UI';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#372a1d';
+    ctx.fillText('Valles Soleados', centerX, centerY - 165);
+    ctx.fillText('Bosque de las Brumas', centerX - 145, centerY + 145);
+    ctx.fillText('Arboleda Ancestral', centerX + 145, centerY + 145);
+    ctx.fillText('Zona de Guerra', centerX, centerY + 5);
+
+    LANDMARKS.forEach((landmark) => {
+      const position = toCanvas(landmark.position[0], landmark.position[2]);
+      const color = getLandmarkColor(landmark);
+      ctx.beginPath();
+      ctx.moveTo(position.x, position.y - 10);
+      ctx.lineTo(position.x + 8, position.y);
+      ctx.lineTo(position.x, position.y + 10);
+      ctx.lineTo(position.x - 8, position.y);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = '#120f0b';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#140f0a';
+      ctx.font = 'bold 11px Segoe UI';
+      ctx.fillText(landmark.shortName, position.x, position.y - 16);
+    });
+
+    Object.values(controlPoints).forEach((point) => {
+      const ownerMeta = point.owner ? getFactionMeta(point.owner) : null;
+      const position = toCanvas(point.position[0], point.position[2]);
+      ctx.beginPath();
+      ctx.arc(position.x, position.y, 8, 0, Math.PI * 2);
+      ctx.fillStyle = ownerMeta?.color || '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = '#1b1713';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = '#120f0b';
+      ctx.font = 'bold 12px Segoe UI';
+      ctx.fillText(point.name, position.x, position.y - 14);
+    });
+
+    Object.values(mobs).forEach((mob) => {
+      const position = toCanvas(mob.position[0], mob.position[2]);
+      ctx.beginPath();
+      ctx.arc(position.x, position.y, 3.2, 0, Math.PI * 2);
+      ctx.fillStyle = '#c24141';
       ctx.fill();
     });
 
-  }, [isMapOpen, players, mobs, myId]);
+    Object.values(players).forEach((player) => {
+      const position = toCanvas(player.position[0], player.position[2]);
+      ctx.beginPath();
+      ctx.arc(position.x, position.y, player.id === myId ? 7 : 5, 0, Math.PI * 2);
+      ctx.fillStyle = player.id === myId ? '#4ce2ff' : getFactionMeta(player.faction).color;
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = player.id === myId ? 2 : 0;
+      if (player.id === myId) ctx.stroke();
+    });
+
+    ctx.restore();
+  }, [controlPoints, isMapOpen, mobs, myId, players]);
 
   if (!isMapOpen) return null;
 
   return (
     <div style={{
       position: 'absolute',
-      top: 0, left: 0, width: '100%', height: '100%',
-      background: 'rgba(0,0,0,0.85)',
-      display: 'flex', justifyContent: 'center', alignItems: 'center',
+      inset: 0,
+      background: 'rgba(3,6,10,0.86)',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
       zIndex: 50
     }}>
-      <div style={{ position: 'relative' }}>
-        <h2 style={{ color: 'white', textAlign: 'center', position: 'absolute', top: -40, width: '100%' }}>
-          MAPA DEL MUNDO (M para cerrar)
-        </h2>
-        <canvas 
-          ref={canvasRef} 
-          width={CANVAS_SIZE} 
-          height={CANVAS_SIZE} 
-          style={{ border: '2px solid #555', borderRadius: '50%', background: '#111' }}
+      <div style={{
+        position: 'relative',
+        width: 760,
+        maxWidth: '90vw',
+        padding: 22,
+        borderRadius: 24,
+        background: 'linear-gradient(180deg, rgba(18,22,28,0.98), rgba(10,13,18,0.95))',
+        border: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 28px 60px rgba(0,0,0,0.42)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div>
+            <div style={{ color: '#f4e3bf', fontSize: '1.3rem', fontWeight: 800 }}>Mapa del Reino</div>
+            <div style={{ color: '#a5b2bf', fontSize: '0.92rem' }}>Pulsa M para volver al combate</div>
+          </div>
+          <button
+            onClick={toggleMap}
+            style={{
+              pointerEvents: 'auto',
+              border: '1px solid rgba(255,255,255,0.14)',
+              background: 'rgba(255,255,255,0.04)',
+              color: '#ecf3fb',
+              borderRadius: 12,
+              padding: '10px 14px',
+              cursor: 'pointer'
+            }}
+          >
+            Cerrar
+          </button>
+        </div>
+        <canvas
+          ref={canvasRef}
+          width={700}
+          height={700}
+          style={{
+            width: '100%',
+            maxHeight: '78vh',
+            borderRadius: 24,
+            border: '1px solid rgba(255,255,255,0.08)'
+          }}
         />
       </div>
     </div>

@@ -2,92 +2,89 @@ import React, { useEffect } from 'react';
 import useGameStore from '../../stores/useGameStore';
 
 const SystemMenu = () => {
-  const { isSystemMenuOpen, toggleSystemMenu, setAuthStage, disconnect, authStage } = useGameStore();
+  const isSystemMenuOpen = useGameStore((state) => state.isSystemMenuOpen);
+  const toggleSystemMenu = useGameStore((state) => state.toggleSystemMenu);
+  const setAuthStage = useGameStore((state) => state.setAuthStage);
+  const disconnect = useGameStore((state) => state.disconnect);
+  const authStage = useGameStore((state) => state.authStage);
 
   useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.code === 'Escape' && authStage === 'game') {
+    const handleKeyDown = (event) => {
+      if (event.code === 'Escape' && authStage === 'game') {
         toggleSystemMenu();
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleSystemMenu, authStage]);
+  }, [authStage, toggleSystemMenu]);
 
   if (!isSystemMenuOpen) return null;
 
-  const handleLogout = () => {
-    disconnect(); // or specific logout logic
-    // Store handles disconnect by resetting authStage to 'login' usually, 
-    // but let's be explicit if needed or rely on socket disconnect event handling in store.
-    // Current disconnect implementation in store resets state.
-    window.location.reload(); // Simple way to ensure clean state for now
+  const handleChangeCharacter = () => {
+    useGameStore.setState({
+      authStage: 'char_select',
+      myCharacter: null,
+      isSystemMenuOpen: false,
+      isMapOpen: false,
+      isInventoryOpen: false,
+      activeDialog: null
+    });
   };
 
-  const handleChangeCharacter = () => {
-    toggleSystemMenu();
-    useGameStore.setState({ authStage: 'char_select', myCharacter: null });
+  const handleLogout = () => {
+    setAuthStage('login');
+    disconnect();
   };
 
   return (
     <div style={{
-      position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
-      background: 'rgba(0,0,0,0.85)',
-      display: 'flex', justifyContent: 'center', alignItems: 'center',
-      zIndex: 100, fontFamily: '"Cinzel", serif', color: '#c5a059'
+      position: 'absolute',
+      inset: 0,
+      background: 'rgba(4,7,10,0.82)',
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 100
     }}>
       <div style={{
-        width: '300px',
-        background: '#1a1a1a',
-        border: '2px solid #555',
-        padding: '40px',
-        display: 'flex', flexDirection: 'column', gap: '20px',
-        boxShadow: '0 0 50px rgba(0,0,0,0.9)',
-        borderImage: 'linear-gradient(to bottom, #c5a059, #555) 1',
+        width: 360,
+        maxWidth: '92vw',
+        padding: 28,
+        borderRadius: 24,
+        background: 'linear-gradient(180deg, rgba(15,19,24,0.98), rgba(9,11,15,0.95))',
+        border: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 28px 60px rgba(0,0,0,0.42)',
+        color: '#eef4fb',
         textAlign: 'center'
       }}>
-        <h2 style={{ margin: '0 0 20px 0', textTransform: 'uppercase', letterSpacing: '2px' }}>Menú del Sistema</h2>
-        
-        <MenuButton onClick={handleChangeCharacter}>Cambiar Personaje</MenuButton>
-        <MenuButton onClick={handleLogout}>Cerrar Sesión</MenuButton>
-        <div style={{ height: '20px' }} />
-        <MenuButton onClick={toggleSystemMenu} secondary>Volver al Juego</MenuButton>
+        <div style={{ fontSize: '1.35rem', fontWeight: 800, marginBottom: 8 }}>Menu del Sistema</div>
+        <div style={{ color: '#a9b8c6', fontSize: '0.92rem', marginBottom: 22 }}>
+          Pausa tactica. Decide tu siguiente movimiento.
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <MenuButton onClick={handleChangeCharacter}>Cambiar Personaje</MenuButton>
+          <MenuButton onClick={handleLogout}>Cerrar Sesion</MenuButton>
+          <MenuButton onClick={toggleSystemMenu} secondary>Volver al Juego</MenuButton>
+        </div>
       </div>
     </div>
   );
 };
 
-const MenuButton = ({ children, onClick, secondary }) => (
+const MenuButton = ({ children, onClick, secondary = false }) => (
   <button
     onClick={onClick}
     style={{
-      padding: '15px',
-      background: secondary ? 'transparent' : 'linear-gradient(to bottom, #2a2a2a, #111)',
-      border: secondary ? '1px solid #555' : '1px solid #c5a059',
-      color: secondary ? '#aaa' : '#c5a059',
-      fontFamily: 'inherit',
-      fontSize: '1rem',
-      textTransform: 'uppercase',
-      cursor: 'pointer',
-      transition: 'all 0.2s'
-    }}
-    onMouseOver={e => {
-      if(!secondary) {
-        e.target.style.background = '#c5a059';
-        e.target.style.color = '#000';
-      } else {
-        e.target.style.borderColor = '#aaa';
-        e.target.style.color = '#fff';
-      }
-    }}
-    onMouseOut={e => {
-      if(!secondary) {
-        e.target.style.background = 'linear-gradient(to bottom, #2a2a2a, #111)';
-        e.target.style.color = '#c5a059';
-      } else {
-        e.target.style.borderColor = '#555';
-        e.target.style.color = '#aaa';
-      }
+      padding: '14px 18px',
+      borderRadius: 14,
+      border: `1px solid ${secondary ? 'rgba(255,255,255,0.14)' : 'rgba(244,201,93,0.45)'}`,
+      background: secondary ? 'rgba(255,255,255,0.04)' : 'linear-gradient(180deg, rgba(244,201,93,0.22), rgba(244,201,93,0.08))',
+      color: secondary ? '#eef4fb' : '#ffe29e',
+      fontSize: '0.95rem',
+      fontWeight: 700,
+      cursor: 'pointer'
     }}
   >
     {children}

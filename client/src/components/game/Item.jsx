@@ -1,50 +1,47 @@
 import React, { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Text, Billboard } from '@react-three/drei';
+import { Billboard, Text } from '@react-three/drei';
 
-const Item = ({ id, type, position, name, color }) => {
+const Item = ({ itemCode, itemType, position, name, color }) => {
   const ref = useRef();
+  const isGold = itemCode === 'gold' || itemType === 'currency';
 
   useFrame((state) => {
-    if (ref.current) {
-      // Bobbing animation
-      ref.current.position.y = position[1] + Math.sin(state.clock.elapsedTime * 2) * 0.1;
-      // Rotating animation
-      ref.current.rotation.y += 0.02;
-    }
+    if (!ref.current) return;
+    ref.current.position.y = position[1] + (Math.sin(state.clock.elapsedTime * 2.2) * 0.14);
+    ref.current.rotation.y += 0.018;
   });
 
   return (
     <group ref={ref} position={position}>
-      {type === 'gold' ? (
-        <mesh rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.2, 0.2, 0.05, 16]} />
-          <meshStandardMaterial color={color} metalness={0.8} roughness={0.2} />
+      {isGold ? (
+        <mesh rotation={[0, 0, Math.PI / 2]} castShadow>
+          <cylinderGeometry args={[0.24, 0.24, 0.08, 20]} />
+          <meshStandardMaterial color={color || '#ffd95c'} metalness={0.85} roughness={0.2} />
         </mesh>
       ) : (
         <group>
-           {/* Potion Bottle */}
-           <mesh position={[0, 0, 0]}>
-             <sphereGeometry args={[0.15]} />
-             <meshStandardMaterial color={color} transparent opacity={0.8} />
-           </mesh>
-           <mesh position={[0, 0.2, 0]}>
-             <cylinderGeometry args={[0.05, 0.08, 0.1]} />
-             <meshStandardMaterial color="white" transparent opacity={0.5} />
-           </mesh>
+          <mesh castShadow>
+            <sphereGeometry args={[0.18, 16, 16]} />
+            <meshStandardMaterial color={color || '#ff6f61'} transparent opacity={0.86} emissive={color || '#ff6f61'} emissiveIntensity={0.35} />
+          </mesh>
+          <mesh position={[0, 0.22, 0]}>
+            <cylinderGeometry args={[0.05, 0.08, 0.11, 10]} />
+            <meshStandardMaterial color="#d8e7f2" transparent opacity={0.75} />
+          </mesh>
         </group>
       )}
-      
-      <Billboard position={[0, 0.5, 0]}>
+
+      <Billboard position={[0, 0.58, 0]}>
         <Text
           fontSize={0.2}
-          color={type === 'gold' ? 'yellow' : 'white'}
+          color={isGold ? '#ffd95c' : '#ffffff'}
           anchorX="center"
           anchorY="middle"
           outlineWidth={0.02}
           outlineColor="#000000"
         >
-          {name} (E)
+          {`${name} (E)`}
         </Text>
       </Billboard>
     </group>

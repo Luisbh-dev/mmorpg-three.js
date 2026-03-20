@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon --ignore game.db --ignore game.db-journal --ignore game.db-wal --ignore *.log index.js"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
