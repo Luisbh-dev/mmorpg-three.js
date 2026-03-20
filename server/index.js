@@ -23,6 +23,7 @@ const MOBS_LIMIT = 30;
 const CONTROL_POINT_RADIUS = 18;
 const CONTROL_POINT_CAPTURE_RATE = 14;
 const CONTROL_POINT_DAMAGE_BONUS = 0.05;
+const BASIC_ATTACK_COOLDOWN_MS = 500;
 const AUTOSAVE_INTERVAL = 15000;
 
 const controlPoints = {
@@ -410,6 +411,57 @@ function findNearestMob(position, range) {
   });
 
   return mob;
+}
+
+function getFacingVector(entity) {
+  const yaw = Array.isArray(entity?.rotation) ? (entity.rotation[1] || 0) : 0;
+  return {
+    x: -Math.sin(yaw),
+    z: -Math.cos(yaw)
+  };
+}
+
+function findBestAttackTarget(attacker, range) {
+  const forward = getFacingVector(attacker);
+  const coneThreshold = Math.cos(Math.PI / 3.4);
+  const candidates = [
+    ...Object.values(players)
+      .filter((candidate) => candidate.id !== attacker.id && candidate.faction !== attacker.faction && candidate.stats.hp > 0)
+      .map((candidate) => ({ type: 'player', target: candidate })),
+    ...Object.values(mobs).map((candidate) => ({ type: 'mob', target: candidate }))
+  ];
+
+  let bestConeTarget = null;
+  let bestConeScore = -Infinity;
+  let bestFallbackTarget = null;
+  let bestFallbackDistance = range;
+
+  candidates.forEach((candidate) => {
+    const { target } = candidate;
+    const dx = target.position[0] - attacker.position[0];
+    const dz = target.position[2] - attacker.position[2];
+    const distance = Math.sqrt((dx * dx) + (dz * dz));
+    if (distance > range) return;
+
+    if (distance < bestFallbackDistance) {
+      bestFallbackDistance = distance;
+      bestFallbackTarget = candidate;
+    }
+
+    const nx = dx / Math.max(distance, 0.0001);
+    const nz = dz / Math.max(distance, 0.0001);
+    const alignment = (nx * forward.x) + (nz * forward.z);
+
+    if (alignment >= coneThreshold) {
+      const score = (alignment * 2) - (distance / Math.max(range, 1));
+      if (!bestConeTarget || score > bestConeScore) {
+        bestConeScore = score;
+        bestConeTarget = candidate;
+      }
+    }
+  });
+
+  return bestConeTarget || bestFallbackTarget;
 }
 
 function applyDamageToPlayer(attackerId, target, damage) {
@@ -1065,25 +1117,23 @@ io.on('connection', (socket) => {
       } else if (skill.type === 'damage') {
         const damage = Math.max(1, Math.round(skill.value * getFactionDamageMultiplier(player.faction)));
         const skillRange = skill.range || player.stats.range + 2;
-        const targetPlayer = findNearestEnemyPlayer(player, skillRange);
-        const targetMob = findNearestMob(player.position, skillRange);
+        const target = findBestAttackTarget(player, skillRange);
 
-        if (targetPlayer && (!targetMob || distance2D(player.position, targetPlayer.position) <= distance2D(player.position, targetMob.position))) {
-          applyDamageToPlayer(player.id, targetPlayer, damage);
-        } else if (targetMob) {
-          applyDamageToMob(player, targetMob.id, damage);
+        if (target?.type === 'player') {
+          applyDamageToPlayer(player.id, target.target, damage);
+        } else if (target?.type === 'mob') {
+          applyDamageToMob(player, target.target.id, damage);
         }
       } else if (skill.type === 'drain') {
-        const targetPlayer = findNearestEnemyPlayer(player, skill.range || 8);
-        const targetMob = findNearestMob(player.position, skill.range || 8);
+        const target = findBestAttackTarget(player, skill.range || 8);
         const drainDamage = Math.max(1, Math.round(skill.value * getFactionDamageMultiplier(player.faction)));
         const healAmount = Math.floor(drainDamage * 0.75);
 
-        if (targetPlayer && (!targetMob || distance2D(player.position, targetPlayer.position) <= distance2D(player.position, targetMob.position))) {
-          applyDamageToPlayer(player.id, targetPlayer, drainDamage);
+        if (target?.type === 'player') {
+          applyDamageToPlayer(player.id, target.target, drainDamage);
           player.stats.hp = Math.min(player.stats.hp + healAmount, player.stats.maxHp);
-        } else if (targetMob) {
-          applyDamageToMob(player, targetMob.id, drainDamage);
+        } else if (target?.type === 'mob') {
+          applyDamageToMob(player, target.target.id, drainDamage);
           player.stats.hp = Math.min(player.stats.hp + healAmount, player.stats.maxHp);
         }
       }
@@ -1098,40 +1148,23 @@ io.on('connection', (socket) => {
     const attacker = players[socket.id];
     if (!attacker) return;
 
-    const range = attacker.stats.range;
+    const now = Date.now();
+    const lastAttackAt = attacker.lastBasicAttackAt || 0;
+    if (now - lastAttackAt < BASIC_ATTACK_COOLDOWN_MS) return;
+    attacker.lastBasicAttackAt = now;
+
+    const range = attacker.stats.range + 0.5;
     const dmg = Math.max(1, Math.round(attacker.stats.dmg * getFactionDamageMultiplier(attacker.faction)));
     
     // Broadcast attack start for animation
     io.emit('player:attacked', { id: socket.id });
 
-    // Simple distance check hit detection (very naive for now)
-    // In a real game, we'd check direction/cone too
-    
-    // 1. Check Players
-    Object.values(players).forEach(target => {
-      if (target.id === attacker.id) return; // Don't hit self
-      if (target.faction === attacker.faction) return; // No friendly fire
-
-      const dx = target.position[0] - attacker.position[0];
-      const dz = target.position[2] - attacker.position[2];
-      const dist = Math.sqrt(dx*dx + dz*dz);
-
-      if (dist <= range) {
-        applyDamageToPlayer(attacker.id, target, dmg);
-      }
-    });
-
-    // 2. Check Mobs
-    Object.keys(mobs).forEach(mobId => {
-      const mob = mobs[mobId];
-      const dx = mob.position[0] - attacker.position[0];
-      const dz = mob.position[2] - attacker.position[2];
-      const dist = Math.sqrt(dx*dx + dz*dz);
-
-      if (dist <= range) {
-        applyDamageToMob(attacker, mobId, dmg);
-      }
-    });
+    const target = findBestAttackTarget(attacker, range);
+    if (target?.type === 'player') {
+      applyDamageToPlayer(attacker.id, target.target, dmg);
+    } else if (target?.type === 'mob') {
+      applyDamageToMob(attacker, target.target.id, dmg);
+    }
 
     io.emit('players:update', players);
     savePlayer(socket.id);

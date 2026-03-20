@@ -4,6 +4,7 @@ import audioManager from '../systems/AudioManager';
 
 const MAX_MESSAGES = 80;
 const MAX_NOTIFICATIONS = 5;
+const BASIC_ATTACK_COOLDOWN_MS = 500;
 
 const baseSessionState = {
   players: {},
@@ -17,6 +18,7 @@ const baseSessionState = {
   controlPoints: {},
   questDefinitions: {},
   skillBook: {},
+  basicAttackReadyAt: 0,
   isMapOpen: false,
   isInventoryOpen: false,
   isSystemMenuOpen: false,
@@ -308,10 +310,16 @@ const useGameStore = create((set, get) => ({
     const { socket } = get();
     if (!socket) return;
 
+    const now = Date.now();
+    const { basicAttackReadyAt = 0 } = get();
+    if (now < basicAttackReadyAt) return;
+
     set({
+      basicAttackReadyAt: now + BASIC_ATTACK_COOLDOWN_MS,
       lastCombatAction: {
-        id: Date.now(),
-        type: 'attack'
+        id: now,
+        type: 'attack',
+        duration: BASIC_ATTACK_COOLDOWN_MS
       }
     });
 

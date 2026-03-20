@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import useGameStore from '../../stores/useGameStore';
 import { getFactionControlBonus, getFactionMeta, getQuestTitle, getZoneFromPosition } from '../../lib/gameData';
 
@@ -18,7 +18,9 @@ const HUD = () => {
   const controlPoints = useGameStore((state) => state.controlPoints);
   const notifications = useGameStore((state) => state.notifications);
   const lastCombatAction = useGameStore((state) => state.lastCombatAction);
+  const basicAttackReadyAt = useGameStore((state) => state.basicAttackReadyAt);
   const dismissNotification = useGameStore((state) => state.dismissNotification);
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     if (!notifications.length) return undefined;
@@ -27,6 +29,11 @@ const HUD = () => {
     const timer = setTimeout(() => dismissNotification(latestId), 3500);
     return () => clearTimeout(timer);
   }, [dismissNotification, notifications]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(timer);
+  }, []);
 
   if (!myCharacter || !players[myId]) return null;
 
@@ -40,13 +47,13 @@ const HUD = () => {
   const cooldowns = localPlayer.cooldowns || {};
   const onlineCount = Object.keys(players).length;
   const ownedStrongholds = Object.values(controlPoints).filter((point) => point.owner === localPlayer.faction);
-  const combatPulseVisible = lastCombatAction && (Date.now() - lastCombatAction.id < 450);
+  const combatPulseVisible = lastCombatAction && (now - lastCombatAction.id < (lastCombatAction.duration || 450));
 
   const getCooldownOverlay = (slot, cooldownTime) => {
     if (!cooldownTime) return null;
 
     const lastUsed = cooldowns[slot] || 0;
-    const remaining = Math.max(0, cooldownTime - (Date.now() - lastUsed));
+    const remaining = Math.max(0, cooldownTime - (now - lastUsed));
     if (remaining <= 0) return null;
 
     return (
@@ -273,8 +280,28 @@ const HUD = () => {
         borderRadius: 18,
         background: 'linear-gradient(180deg, rgba(0,0,0,0.12), rgba(7,10,15,0.85))',
         boxShadow: '0 18px 40px rgba(0,0,0,0.32)'
-        }}>
-        <SkillSlot slot="LMB" title="Ataque basico" subtitle={`Dano ${stats.dmg}`} accent="#f18d7e" />
+      }}>
+        <SkillSlot
+          slot="LMB"
+          title="Ataque basico"
+          subtitle={`Dano ${stats.dmg}`}
+          accent="#f18d7e"
+          overlay={basicAttackReadyAt > now ? (
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              background: 'linear-gradient(to top, rgba(0,0,0,0.82), rgba(0,0,0,0.18))',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              color: '#fff',
+              fontWeight: 700,
+              fontSize: '0.9rem'
+            }}>
+              {((basicAttackReadyAt - now) / 1000).toFixed(1)}
+            </div>
+          ) : null}
+        />
         <SkillSlot
           slot="Q"
           title={classSkill?.name || 'Habilidad de clase'}
