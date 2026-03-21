@@ -1,6 +1,7 @@
 import sqlite3 from 'sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { FACTION_SPAWNS } from '../client/src/lib/gameData.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -66,14 +67,22 @@ db.serialize(() => {
     )
   `, () => {
     const FACTIONS = [
-      ['sun', 'Orden del Sol', 0, 1, -160],
-      ['shadow', 'Pacto de la Sombra', -160, 1, 100],
-      ['nature', 'Alianza de la Naturaleza', 160, 1, 100]
+      ['sun', 'Orden del Sol', ...FACTION_SPAWNS.sun],
+      ['shadow', 'Pacto de la Sombra', ...FACTION_SPAWNS.shadow],
+      ['nature', 'Alianza de la Naturaleza', ...FACTION_SPAWNS.nature]
     ];
 
     FACTIONS.forEach((faction) => {
       db.run(
-        'INSERT OR IGNORE INTO factions (id, name, spawn_x, spawn_y, spawn_z) VALUES (?, ?, ?, ?, ?)',
+        `
+          INSERT INTO factions (id, name, spawn_x, spawn_y, spawn_z)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            spawn_x = excluded.spawn_x,
+            spawn_y = excluded.spawn_y,
+            spawn_z = excluded.spawn_z
+        `,
         faction
       );
     });

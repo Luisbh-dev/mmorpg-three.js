@@ -62,8 +62,9 @@ const Minimap = () => {
 
     LANDMARKS.forEach((landmark) => {
       const position = toCanvas(landmark.position[0], landmark.position[2]);
+      const markerRadius = landmark.type === 'capital' ? 5 : landmark.type === 'city' ? 4.4 : landmark.type === 'town' ? 3.8 : landmark.type === 'village' ? 3.2 : 3.6;
       ctx.beginPath();
-      ctx.arc(position.x, position.y, 3.6, 0, Math.PI * 2);
+      ctx.arc(position.x, position.y, markerRadius, 0, Math.PI * 2);
       ctx.fillStyle = getLandmarkColor(landmark);
       ctx.fill();
       ctx.strokeStyle = '#19130f';

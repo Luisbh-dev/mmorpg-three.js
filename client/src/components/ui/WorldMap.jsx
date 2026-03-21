@@ -73,9 +73,9 @@ const WorldMap = () => {
       ctx.fill();
     };
 
-    drawRegion([[-150, -200], [150, -200], [150, -50], [-150, -50]], 'rgba(244, 201, 93, 0.28)');
-    drawRegion([[-200, 50], [-50, 50], [-50, 200], [-200, 200]], 'rgba(138, 125, 255, 0.28)');
-    drawRegion([[50, 50], [200, 50], [200, 200], [50, 200]], 'rgba(87, 199, 119, 0.28)');
+    drawRegion([[-220, -320], [220, -320], [150, -98], [-150, -98]], 'rgba(244, 201, 93, 0.24)');
+    drawRegion([[-320, 20], [-100, 20], [-104, 320], [-320, 320]], 'rgba(138, 125, 255, 0.24)');
+    drawRegion([[100, 20], [320, 20], [320, 320], [104, 320]], 'rgba(87, 199, 119, 0.24)');
 
     ctx.beginPath();
     ctx.arc(centerX, centerY, WAR_ZONE_RADIUS * scale, 0, Math.PI * 2);
@@ -87,19 +87,20 @@ const WorldMap = () => {
     ctx.font = 'bold 16px Segoe UI';
     ctx.textAlign = 'center';
     ctx.fillStyle = '#372a1d';
-    ctx.fillText('Valles Soleados', centerX, centerY - 165);
-    ctx.fillText('Bosque de las Brumas', centerX - 145, centerY + 145);
-    ctx.fillText('Arboleda Ancestral', centerX + 145, centerY + 145);
+    ctx.fillText('Reino del Alba', centerX, centerY - 210);
+    ctx.fillText('Dominio Umbrio', centerX - 190, centerY + 180);
+    ctx.fillText('Territorio Verde', centerX + 190, centerY + 180);
     ctx.fillText('Zona de Guerra', centerX, centerY + 5);
 
     LANDMARKS.forEach((landmark) => {
       const position = toCanvas(landmark.position[0], landmark.position[2]);
       const color = getLandmarkColor(landmark);
+      const iconSize = landmark.type === 'capital' ? 11 : landmark.type === 'city' ? 9 : landmark.type === 'town' ? 7 : 6;
       ctx.beginPath();
-      ctx.moveTo(position.x, position.y - 10);
-      ctx.lineTo(position.x + 8, position.y);
-      ctx.lineTo(position.x, position.y + 10);
-      ctx.lineTo(position.x - 8, position.y);
+      ctx.moveTo(position.x, position.y - iconSize);
+      ctx.lineTo(position.x + iconSize, position.y);
+      ctx.lineTo(position.x, position.y + iconSize);
+      ctx.lineTo(position.x - iconSize, position.y);
       ctx.closePath();
       ctx.fillStyle = color;
       ctx.fill();

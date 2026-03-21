@@ -10,10 +10,10 @@ import Mob from './game/Mob';
 import Item from './game/Item';
 import NPC from './game/NPC';
 import Wall from './game/Wall';
-import { FACTION_META, LANDMARKS, MAP_RADIUS, WAR_ZONE_RADIUS, getFactionMeta, getLandmarkColor } from '../lib/gameData';
+import { FACTION_META, LANDMARKS, MAP_RADIUS, ROADS, WAR_ZONE_RADIUS, WORLD_BOUNDARY, getFactionMeta, getLandmarkColor } from '../lib/gameData';
 
 const MOVEMENT_SPEED = 0.3;
-const BOUNDARY = 195;
+const BOUNDARY = WORLD_BOUNDARY;
 const INNER_WALL_THICKNESS = 1.1;
 const RADIAL_ANGLES = [Math.PI / 4, Math.PI, (7 * Math.PI) / 4];
 
@@ -128,6 +128,117 @@ const Landmark = ({ landmark }) => {
     );
   }
 
+  if (landmark.type === 'city') {
+    return (
+      <group position={landmark.position}>
+        <mesh receiveShadow castShadow>
+          <cylinderGeometry args={[5.6, 6.2, 1.2, 28]} />
+          <meshStandardMaterial color="#4b4038" roughness={0.95} />
+        </mesh>
+        <mesh position={[0, 2.8, 0]} castShadow>
+          <cylinderGeometry args={[2.1, 2.8, 4.8, 14]} />
+          <meshStandardMaterial color={color} roughness={0.7} />
+        </mesh>
+        <mesh position={[-3.1, 1.4, 0.2]} rotation={[0, 0.1, 0.06]} castShadow>
+          <boxGeometry args={[1.4, 2.2, 1.2]} />
+          <meshStandardMaterial color="#7f6d5f" roughness={0.95} />
+        </mesh>
+        <mesh position={[3.0, 1.5, -0.4]} rotation={[0, -0.12, -0.04]} castShadow>
+          <boxGeometry args={[1.5, 2.4, 1.15]} />
+          <meshStandardMaterial color="#6d5b4c" roughness={0.95} />
+        </mesh>
+        <mesh position={[0, 5.5, 0]} castShadow>
+          <octahedronGeometry args={[1.1, 0]} />
+          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={0.9} roughness={0.18} />
+        </mesh>
+        <pointLight position={[0, 5.2, 0]} intensity={9} color={meta.glow} distance={18} />
+      </group>
+    );
+  }
+
+  if (landmark.type === 'town') {
+    return (
+      <group position={landmark.position}>
+        <mesh receiveShadow castShadow>
+          <cylinderGeometry args={[3.4, 3.9, 1, 20]} />
+          <meshStandardMaterial color="#4f4237" roughness={0.98} />
+        </mesh>
+        <mesh position={[-1.9, 1.2, 0.35]} rotation={[0, 0.08, 0.1]} castShadow>
+          <boxGeometry args={[1.05, 1.7, 0.95]} />
+          <meshStandardMaterial color="#846b57" roughness={0.95} />
+        </mesh>
+        <mesh position={[1.8, 1.15, -0.25]} rotation={[0, -0.05, -0.08]} castShadow>
+          <boxGeometry args={[1.1, 1.6, 0.9]} />
+          <meshStandardMaterial color="#8c755d" roughness={0.95} />
+        </mesh>
+        <mesh position={[0, 2.7, 0]} castShadow>
+          <cylinderGeometry args={[0.8, 1.2, 3.0, 10]} />
+          <meshStandardMaterial color={color} roughness={0.72} />
+        </mesh>
+        <mesh position={[0, 4.5, 0]} castShadow>
+          <octahedronGeometry args={[0.7, 0]} />
+          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={0.75} roughness={0.2} />
+        </mesh>
+        <pointLight position={[0, 4.3, 0]} intensity={6} color={meta.glow} distance={14} />
+      </group>
+    );
+  }
+
+  if (landmark.type === 'village') {
+    return (
+      <group position={landmark.position}>
+        <mesh receiveShadow castShadow>
+          <cylinderGeometry args={[2.6, 3.0, 0.9, 16]} />
+          <meshStandardMaterial color="#564539" roughness={1} />
+        </mesh>
+        <mesh position={[-1.45, 0.95, 0.25]} rotation={[0, 0.18, 0.12]} castShadow>
+          <coneGeometry args={[0.7, 1.3, 6]} />
+          <meshStandardMaterial color="#7d6048" roughness={1} />
+        </mesh>
+        <mesh position={[1.25, 0.9, -0.15]} rotation={[0, -0.12, -0.1]} castShadow>
+          <coneGeometry args={[0.65, 1.2, 6]} />
+          <meshStandardMaterial color="#8b7358" roughness={1} />
+        </mesh>
+        <mesh position={[0, 1.7, 0]} castShadow>
+          <boxGeometry args={[0.65, 0.65, 0.65]} />
+          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={0.5} />
+        </mesh>
+        <mesh position={[0.9, 0.95, 0.55]} castShadow>
+          <cylinderGeometry args={[0.06, 0.06, 1.4]} />
+          <meshStandardMaterial color="#9c7450" />
+        </mesh>
+        <mesh position={[-0.9, 1.0, -0.55]} castShadow>
+          <sphereGeometry args={[0.35, 10, 10]} />
+          <meshStandardMaterial color="#5fa35a" />
+        </mesh>
+      </group>
+    );
+  }
+
+  if (landmark.type === 'outpost') {
+    return (
+      <group position={landmark.position}>
+        <mesh receiveShadow castShadow>
+          <cylinderGeometry args={[2.4, 2.9, 1, 18]} />
+          <meshStandardMaterial color="#3f342e" roughness={1} />
+        </mesh>
+        <mesh position={[0, 2.4, 0]} castShadow>
+          <cylinderGeometry args={[0.7, 1.0, 4.2, 10]} />
+          <meshStandardMaterial color={color} roughness={0.8} />
+        </mesh>
+        <mesh position={[0, 4.8, 0]} castShadow>
+          <boxGeometry args={[1.4, 0.5, 1.4]} />
+          <meshStandardMaterial color="#6c5540" roughness={0.95} />
+        </mesh>
+        <mesh position={[0, 5.5, 0]} castShadow>
+          <octahedronGeometry args={[0.55, 0]} />
+          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={0.8} />
+        </mesh>
+        <pointLight position={[0, 5.1, 0]} intensity={4.5} color={meta.glow} distance={12} />
+      </group>
+    );
+  }
+
   if (landmark.type === 'fortress') {
     return (
       <group position={landmark.position}>
@@ -148,6 +259,30 @@ const Landmark = ({ landmark }) => {
           <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={1.1} roughness={0.15} />
         </mesh>
         <pointLight position={[0, 7.2, 0]} intensity={12} color={meta.glow} distance={24} />
+      </group>
+    );
+  }
+
+  if (landmark.type === 'arena') {
+    return (
+      <group position={landmark.position}>
+        <mesh receiveShadow castShadow>
+          <cylinderGeometry args={[6.2, 6.8, 1.3, 36]} />
+          <meshStandardMaterial color="#4a3f35" roughness={0.95} />
+        </mesh>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, 0]} receiveShadow>
+          <torusGeometry args={[4.6, 0.24, 14, 32]} />
+          <meshBasicMaterial color={color} transparent opacity={0.8} side={THREE.DoubleSide} />
+        </mesh>
+        <mesh position={[0, 3.4, 0]} castShadow>
+          <boxGeometry args={[2.2, 4.2, 2.2]} />
+          <meshStandardMaterial color={color} roughness={0.55} />
+        </mesh>
+        <mesh position={[0, 6.1, 0]} castShadow>
+          <octahedronGeometry args={[1.2, 0]} />
+          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={1} />
+        </mesh>
+        <pointLight position={[0, 5.5, 0]} intensity={12} color={meta.glow} distance={24} />
       </group>
     );
   }
@@ -229,6 +364,12 @@ const AncientRoad = ({ points, color = '#8d7a62' }) => {
       <meshStandardMaterial color={color} roughness={1} />
     </mesh>
   );
+};
+
+const roadColors = {
+  sun: '#aa9466',
+  shadow: '#6f6574',
+  nature: '#6b8f63'
 };
 
 const ControlPointBeacon = ({ point }) => {
@@ -508,21 +649,23 @@ const World = () => {
   const controlPoints = useGameStore((state) => state.controlPoints);
 
   const forest = useMemo(() => {
-    return Array.from({ length: 110 }, (_, index) => {
-      const angle = index * 0.53;
-      const radius = 110 + ((index % 12) * 5);
+    return Array.from({ length: 160 }, (_, index) => {
+      const angle = index * 0.47;
+      const radius = 138 + ((index % 18) * 7);
       const x = Math.sin(angle) * radius;
       const z = Math.cos(angle * 1.2) * radius;
-      const skipWarZone = Math.sqrt((x * x) + (z * z)) < 72;
-      if (skipWarZone || Math.abs(x) < 14) return null;
+      const skipWarZone = Math.sqrt((x * x) + (z * z)) < WAR_ZONE_RADIUS + 14;
+      const skipRoads = Math.abs(x) < 20 && z < -70;
+      if (skipWarZone || skipRoads) return null;
       return [x, 0, z];
     }).filter(Boolean);
   }, []);
 
   const crystals = useMemo(() => ([
-    { position: [0, 1, -148], color: FACTION_META.sun.color },
-    { position: [-148, 1, 95], color: FACTION_META.shadow.color },
-    { position: [148, 1, 95], color: FACTION_META.nature.color }
+    { position: [0, 1, -248], color: FACTION_META.sun.color },
+    { position: [-248, 1, 134], color: FACTION_META.shadow.color },
+    { position: [248, 1, 134], color: FACTION_META.nature.color },
+    { position: [0, 1, 0], color: FACTION_META.system.color }
   ]), []);
 
   return (
@@ -555,9 +698,13 @@ const World = () => {
 
       <FloatingMotes />
 
-      <AncientRoad points={[[0, 0.04, -150], [0, 0.05, -90], [0, 0.06, -20]]} />
-      <AncientRoad points={[[-150, 0.04, 95], [-108, 0.05, 72], [-42, 0.06, 28]]} />
-      <AncientRoad points={[[150, 0.04, 95], [108, 0.05, 72], [42, 0.06, 28]]} />
+      {ROADS.map((road) => (
+        <AncientRoad
+          key={road.id}
+          points={road.points.map(([x, z], index) => [x, 0.04 + (index * 0.01), z])}
+          color={roadColors[road.faction] || '#8d7a62'}
+        />
+      ))}
 
       {LANDMARKS.map((landmark) => (
         <Landmark key={landmark.id} landmark={landmark} />
@@ -587,6 +734,7 @@ const World = () => {
           position={npc.position}
           faction={npc.faction}
           type={npc.type}
+          role={npc.role}
           questId={npc.questId}
         />
       ))}

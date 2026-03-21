@@ -5,6 +5,7 @@ import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcrypt';
 import db from './database.js';
+import { LANDMARKS, MAP_RADIUS, NPCS, WAR_ZONE_RADIUS, WORLD_BOUNDARY as WORLD_LIMIT } from '../client/src/lib/gameData.js';
 
 const app = express();
 app.use(cors());
@@ -18,13 +19,14 @@ const io = new Server(httpServer, {
 });
 
 const players = {};
-const WORLD_BOUNDARY = 200;
+const WORLD_BOUNDARY = WORLD_LIMIT;
 const MOBS_LIMIT = 30;
 const CONTROL_POINT_RADIUS = 18;
 const CONTROL_POINT_CAPTURE_RATE = 14;
 const CONTROL_POINT_DAMAGE_BONUS = 0.05;
 const BASIC_ATTACK_COOLDOWN_MS = 500;
 const AUTOSAVE_INTERVAL = 15000;
+const SAFE_LANDMARK_TYPES = new Set(['capital', 'city', 'town', 'village', 'outpost']);
 
 const controlPoints = {
   sunspire: {
@@ -299,6 +301,54 @@ function respawnPlayer(player) {
   return player.position;
 }
 
+function isInsideSettlementSafety(position, margin = 34) {
+  return LANDMARKS.some((landmark) => {
+    if (!SAFE_LANDMARK_TYPES.has(landmark.type)) return false;
+    return distance2D(position, landmark.position) <= margin;
+  });
+}
+
+function pickMobSpawnPosition(zone) {
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    let pos = [0, 1, 0];
+
+    if (zone === 'nature') {
+      pos = [
+        150 + (Math.random() * (MAP_RADIUS - 170)),
+        1,
+        30 + (Math.random() * (MAP_RADIUS - 40))
+      ];
+    } else if (zone === 'shadow') {
+      pos = [
+        -MAP_RADIUS + 35 + (Math.random() * 120),
+        1,
+        30 + (Math.random() * (MAP_RADIUS - 40))
+      ];
+    } else if (zone === 'sun') {
+      pos = [
+        -120 + (Math.random() * 240),
+        1,
+        -MAP_RADIUS + 35 + (Math.random() * 120)
+      ];
+    } else {
+      pos = [
+        (Math.random() - 0.5) * (WAR_ZONE_RADIUS * 1.6),
+        1,
+        (Math.random() - 0.5) * (WAR_ZONE_RADIUS * 1.6)
+      ];
+    }
+
+    if (!isInsideSettlementSafety(pos)) {
+      return pos;
+    }
+  }
+
+  if (zone === 'sun') return [0, 1, -176];
+  if (zone === 'shadow') return [-176, 1, 84];
+  if (zone === 'nature') return [176, 1, 84];
+  return [0, 1, 0];
+}
+
 function applyLevelUps(player) {
   let leveledUp = false;
 
@@ -558,15 +608,8 @@ function updateControlPoints() {
 
 // Initialize NPCs
 function spawnNPCs() {
-  // Hardcoded quest givers for now, could be DB
-  const npcList = [
-    { id: 'npc_sun', name: 'Capitán Solarius', faction: 'sun', position: [0, 1, -150], type: 'quest_giver', questId: 'quest_bandit' },
-    { id: 'npc_shadow', name: 'Sombra Silenciosa', faction: 'shadow', position: [-150, 1, 90], type: 'quest_giver', questId: 'quest_skeleton' },
-    { id: 'npc_nature', name: 'Druida Mayor', faction: 'nature', position: [150, 1, 90], type: 'quest_giver', questId: 'quest_wolf' }
-  ];
-
-  npcList.forEach(n => {
-    npcs[n.id] = n;
+  NPCS.forEach((npc) => {
+    npcs[npc.id] = { ...npc };
   });
   console.log('NPCs Spawned');
 }
@@ -598,19 +641,7 @@ function spawnMob() {
   const type = types[Math.floor(Math.random() * types.length)];
   const data = MOBS_DATA[type];
   
-  let pos = [0, 1, 0];
-  
-  // Spawn logic per zone
-  if (data.zone === 'nature') {
-    pos = [100 + Math.random() * 80, 1, 100 + Math.random() * 80];
-  } else if (data.zone === 'shadow') {
-    pos = [-100 - Math.random() * 80, 1, 100 + Math.random() * 80]; 
-  } else if (data.zone === 'sun') {
-    pos = [(Math.random() - 0.5) * 100, 1, -100 - Math.random() * 80];
-  } else {
-    // Center
-    pos = [(Math.random() - 0.5) * 40, 1, (Math.random() - 0.5) * 40];
-  }
+  const pos = pickMobSpawnPosition(data.zone);
 
   const id = uuidv4();
   mobs[id] = {
@@ -939,8 +970,21 @@ io.on('connection', (socket) => {
     let dialogData = {
       npcName: npc.name,
       text: `Saludos, viajero de la ${player.faction}.`,
-      options: [{ label: 'Adiós', action: 'close' }]
+      options: [{ label: 'Adios', action: 'close' }]
     };
+
+    const role = npc.role || npc.type;
+    if (role === 'merchant') {
+      dialogData.text = 'Las tiendas completas vendran despues, pero ya estas en una ciudad viva. Revisa el entorno y habla con los artesanos del reino.';
+    } else if (role === 'trainer') {
+      dialogData.text = 'Entrena cerca de la ciudad, aprende tu ritmo y luego lleva esa fuerza al frente.';
+    } else if (role === 'healer') {
+      dialogData.text = 'Cada reino protege su retaguardia. Si caes, volveras a un santuario seguro de tu faccion.';
+    } else if (role === 'guard') {
+      dialogData.text = 'Las puertas del reino estan cerradas al enemigo. La guerra queda en el centro del continente.';
+    } else if (role === 'citizen') {
+      dialogData.text = 'Nuestros pueblos siguen creciendo. El mapa es grande, pero cada camino lleva de vuelta a casa.';
+    }
 
     if (npc.type === 'quest_giver' && npc.questId) {
       const quest = QUESTS_DB[npc.questId];
@@ -1209,3 +1253,4 @@ const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
