@@ -463,6 +463,7 @@ const PlayerController = () => {
   const { camera } = useThree();
   const velocityY = useRef(0);
   const isJumping = useRef(false);
+  const pointerLockWasActive = useRef(false);
 
   useEffect(() => {
     const shouldIgnoreInput = (event) => {
@@ -559,7 +560,12 @@ const PlayerController = () => {
   useEffect(() => {
     const handlePointerLockChange = () => {
       const state = useGameStore.getState();
-      if (!document.pointerLockElement && state.authStage === 'game' && !state.isMapOpen && !state.isInventoryOpen && !state.activeDialog) {
+      if (document.pointerLockElement) {
+        pointerLockWasActive.current = true;
+        return;
+      }
+
+      if (pointerLockWasActive.current && state.authStage === 'game' && !state.isMapOpen && !state.isInventoryOpen && !state.activeDialog) {
         useGameStore.setState({ isSystemMenuOpen: true });
       }
     };
@@ -575,6 +581,16 @@ const PlayerController = () => {
 
     const isLocked = document.pointerLockElement !== null;
     if (!isLocked && (state.isMapOpen || state.isInventoryOpen || state.isSystemMenuOpen || state.activeDialog)) return;
+
+    const playerOrigin = new THREE.Vector3(
+      player.position[0],
+      player.position[1] + 1.6,
+      player.position[2]
+    );
+
+    if (camera.position.distanceTo(playerOrigin) > 1.25) {
+      camera.position.copy(playerOrigin);
+    }
 
     const frontVector = new THREE.Vector3(0, 0, 0);
     const sideVector = new THREE.Vector3(0, 0, 0);
@@ -592,7 +608,7 @@ const PlayerController = () => {
 
     velocityY.current -= 0.015;
 
-    const currentPosition = camera.position.clone();
+    const currentPosition = playerOrigin.clone();
     let proposedX = currentPosition.x + direction.x;
     let proposedZ = currentPosition.z;
 
