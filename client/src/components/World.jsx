@@ -627,19 +627,22 @@ const PlayerController = () => {
       camera.position.copy(playerOrigin);
     }
 
-    const frontVector = new THREE.Vector3(0, 0, 0);
-    const sideVector = new THREE.Vector3(0, 0, 0);
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    if (forward.lengthSq() > 0) forward.normalize();
 
-    if (keys.current.forward) frontVector.z -= 1;
-    if (keys.current.backward) frontVector.z += 1;
-    if (keys.current.left) sideVector.x += 1;
-    if (keys.current.right) sideVector.x -= 1;
+    const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+    const direction = new THREE.Vector3();
 
-    const direction = new THREE.Vector3()
-      .subVectors(frontVector, sideVector)
-      .normalize()
-      .multiplyScalar(MOVEMENT_SPEED)
-      .applyEuler(new THREE.Euler(0, camera.rotation.y, 0));
+    if (keys.current.forward) direction.add(forward);
+    if (keys.current.backward) direction.sub(forward);
+    if (keys.current.left) direction.sub(right);
+    if (keys.current.right) direction.add(right);
+
+    if (direction.lengthSq() > 0) {
+      direction.normalize().multiplyScalar(MOVEMENT_SPEED);
+    }
 
     const currentPosition = camera.position.clone();
     const proposedX = currentPosition.x + direction.x;
