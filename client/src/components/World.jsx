@@ -609,42 +609,8 @@ const PlayerController = () => {
     velocityY.current -= 0.015;
 
     const currentPosition = camera.position.clone();
-    let proposedX = currentPosition.x + direction.x;
-    let proposedZ = currentPosition.z;
-
-    const checkCollision = (x, z) => {
-      const distanceFromCenter = Math.sqrt((x * x) + (z * z));
-      if (distanceFromCenter > WAR_ZONE_RADIUS - INNER_WALL_THICKNESS && distanceFromCenter < WAR_ZONE_RADIUS + INNER_WALL_THICKNESS) {
-        let angle = Math.atan2(x, z);
-        if (angle < 0) angle += Math.PI * 2;
-
-        const isGate =
-          Math.abs(angle - 0) < 0.25 ||
-          Math.abs(angle - Math.PI / 2) < 0.25 ||
-          Math.abs(angle - Math.PI) < 0.25 ||
-          Math.abs(angle - (3 * Math.PI) / 2) < 0.25;
-
-        if (!isGate) return true;
-      }
-
-      if (distanceFromCenter > WAR_ZONE_RADIUS) {
-        let angle = Math.atan2(x, z);
-        if (angle < 0) angle += Math.PI * 2;
-
-        return RADIAL_ANGLES.some((wallAngle) => {
-          let diff = Math.abs(angle - wallAngle);
-          if (diff > Math.PI) diff = (Math.PI * 2) - diff;
-          return diff < 0.04;
-        });
-      }
-
-      return false;
-    };
-
-    if (checkCollision(proposedX, proposedZ)) proposedX = currentPosition.x;
-
-    proposedZ = currentPosition.z + direction.z;
-    if (checkCollision(proposedX, proposedZ)) proposedZ = currentPosition.z;
+    const proposedX = currentPosition.x + direction.x;
+    const proposedZ = currentPosition.z + direction.z;
 
     const nextPosition = new THREE.Vector3(
       Math.max(-BOUNDARY, Math.min(BOUNDARY, proposedX)),
