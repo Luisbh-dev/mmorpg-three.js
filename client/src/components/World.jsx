@@ -3,7 +3,6 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { Billboard, Environment, PointerLockControls, Sky, Stars, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import useGameStore from '../stores/useGameStore';
-import { useKeyboard } from '../hooks/useKeyboard';
 import Terrain from './game/Terrain';
 import CharacterModel from './game/CharacterModel';
 import Mob from './game/Mob';
@@ -452,7 +451,6 @@ const Player = ({ id, position, rotation, faction, isMe, name, stats, lastAttack
 };
 
 const PlayerController = () => {
-  const { moveForward, moveBackward, moveLeft, moveRight } = useKeyboard();
   const myId = useGameStore((state) => state.myId);
   const players = useGameStore((state) => state.players);
   const movePlayer = useGameStore((state) => state.movePlayer);
@@ -462,6 +460,12 @@ const PlayerController = () => {
   const activeDialog = useGameStore((state) => state.activeDialog);
   const { camera } = useThree();
   const pointerLockWasActive = useRef(false);
+  const keys = useRef({
+    forward: false,
+    backward: false,
+    left: false,
+    right: false
+  });
 
   useEffect(() => {
     const shouldIgnoreInput = (event) => {
@@ -478,6 +482,23 @@ const PlayerController = () => {
 
       const state = useGameStore.getState();
       if (state.isMapOpen || state.isInventoryOpen || state.isSystemMenuOpen || state.activeDialog) return;
+
+      const movementKeyMap = {
+        KeyW: 'forward',
+        ArrowUp: 'forward',
+        KeyS: 'backward',
+        ArrowDown: 'backward',
+        KeyA: 'left',
+        ArrowLeft: 'left',
+        KeyD: 'right',
+        ArrowRight: 'right'
+      };
+
+      const movementKey = movementKeyMap[event.code];
+      if (movementKey) {
+        event.preventDefault();
+        keys.current[movementKey] = true;
+      }
 
       if (event.code === 'KeyQ') {
         state.castSkill(2);
@@ -511,6 +532,25 @@ const PlayerController = () => {
       }
     };
 
+    const handleKeyUp = (event) => {
+      const movementKeyMap = {
+        KeyW: 'forward',
+        ArrowUp: 'forward',
+        KeyS: 'backward',
+        ArrowDown: 'backward',
+        KeyA: 'left',
+        ArrowLeft: 'left',
+        KeyD: 'right',
+        ArrowRight: 'right'
+      };
+
+      const movementKey = movementKeyMap[event.code];
+      if (movementKey) {
+        event.preventDefault();
+        keys.current[movementKey] = false;
+      }
+    };
+
     const handlePointerDown = (event) => {
       if (shouldIgnoreInput(event)) return;
       const state = useGameStore.getState();
@@ -522,9 +562,11 @@ const PlayerController = () => {
     };
 
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('pointerdown', handlePointerDown, true);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('pointerdown', handlePointerDown, true);
     };
   }, []);
@@ -588,10 +630,10 @@ const PlayerController = () => {
     const frontVector = new THREE.Vector3(0, 0, 0);
     const sideVector = new THREE.Vector3(0, 0, 0);
 
-    if (moveForward) frontVector.z -= 1;
-    if (moveBackward) frontVector.z += 1;
-    if (moveLeft) sideVector.x += 1;
-    if (moveRight) sideVector.x -= 1;
+    if (keys.current.forward) frontVector.z -= 1;
+    if (keys.current.backward) frontVector.z += 1;
+    if (keys.current.left) sideVector.x += 1;
+    if (keys.current.right) sideVector.x -= 1;
 
     const direction = new THREE.Vector3()
       .subVectors(frontVector, sideVector)
