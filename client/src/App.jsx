@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { Suspense, useEffect } from 'react'
 import { Canvas } from '@react-three/fiber'
 import World from './components/World'
 import CharacterCreation from './components/CharacterCreation'
@@ -58,7 +58,9 @@ function App() {
       {authStage === 'game' && (
         <>
           <Canvas shadows camera={{ fov: 75 }}>
-            <World />
+            <Suspense fallback={null}>
+              <World />
+            </Suspense>
           </Canvas>
           <HUD />
           <Chat />

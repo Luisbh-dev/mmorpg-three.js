@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Billboard, Text, useGLTF } from '@react-three/drei';
+import * as THREE from 'three';
 import { getFactionMeta } from '../../lib/gameData';
 
 const ROOT = '/assets/kenney';
@@ -76,13 +77,15 @@ function SettlementLabel({ title, subtitle, accent }) {
 }
 
 function SettlementFoundation({ landmark, accent }) {
-  const baseScale = landmark.type === 'capital' ? 12 : landmark.type === 'city' ? 10 : landmark.type === 'town' ? 7.5 : 5.5;
   return (
     <>
-      <AssetModel path={PATHS.castle.ground} scale={baseScale} position={[0, 0.1, 0]} />
-      <mesh position={[0, 0.15, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <circleGeometry args={[landmark.type === 'capital' ? 13 : 10, 36]} />
-        <meshStandardMaterial color={accent} transparent opacity={0.08} />
+      <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <circleGeometry args={[landmark.type === 'capital' ? 16 : landmark.type === 'city' ? 14 : 11, 42]} />
+        <meshStandardMaterial color="#7c6a55" roughness={1} metalness={0} />
+      </mesh>
+      <mesh position={[0, 0.07, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <ringGeometry args={[landmark.type === 'capital' ? 9.5 : 8.5, landmark.type === 'capital' ? 15.6 : landmark.type === 'city' ? 13.6 : 10.6, 42]} />
+        <meshBasicMaterial color={accent} transparent opacity={0.12} side={THREE.DoubleSide} />
       </mesh>
     </>
   );
@@ -168,25 +171,26 @@ function renderCity(landmark, accent, glow) {
   return (
     <>
       <SettlementFoundation landmark={landmark} accent={accent} />
-      <AssetModel path={PATHS.roads.crossroad} position={[0, 0.11, 0]} scale={3.1} />
-      <AssetModel path={PATHS.roads.intersection} position={[0, 0.11, 0]} scale={2.7} />
-      <AssetModel path={PATHS.roads.square} position={[0, 0.11, 0]} scale={3.4} />
+      <AssetModel path={PATHS.roads.square} position={[0, 0.11, 0]} scale={4.3} />
+      <AssetModel path={PATHS.roads.crossroad} position={[0, 0.11, 0]} scale={3.5} />
+      <AssetModel path={PATHS.roads.intersection} position={[0, 0.11, 0]} scale={3.1} />
+      <AssetModel path={PATHS.roads.sideEntry} position={[0, 0.11, -20]} scale={2} />
+      <AssetModel path={PATHS.roads.sideExit} position={[0, 0.11, 20]} rotation={[0, Math.PI, 0]} scale={2} />
+      <AssetModel path={PATHS.roads.sideEntry} position={[-20, 0.11, 0]} rotation={[0, Math.PI / 2, 0]} scale={1.9} />
+      <AssetModel path={PATHS.roads.sideExit} position={[20, 0.11, 0]} rotation={[0, -Math.PI / 2, 0]} scale={1.9} />
 
-      <AssetModel path={PATHS.buildings.block} position={[-10, 0, -6]} scale={2.2} />
-      <AssetModel path={PATHS.buildings.corner} position={[10, 0, -6]} rotation={[0, Math.PI / 2, 0]} scale={2.2} />
-      <AssetModel path={PATHS.buildings.door} position={[-10, 0, 8]} scale={2} />
-      <AssetModel path={PATHS.buildings.window} position={[10, 0, 8]} scale={2} />
-      <AssetModel path={PATHS.buildings.windows} position={[0, 0, -14]} rotation={[0, Math.PI / 2, 0]} scale={1.8} />
-      <AssetModel path={PATHS.buildings.sampleHouseA} position={[-15, 0, 0]} rotation={[0, Math.PI / 2, 0]} scale={1.8} />
-      <AssetModel path={PATHS.buildings.sampleHouseB} position={[15, 0, 0]} rotation={[0, -Math.PI / 2, 0]} scale={1.8} />
-      <AssetModel path={PATHS.buildings.sampleHouseC} position={[0, 0, 15]} rotation={[0, Math.PI, 0]} scale={1.8} />
-      <AssetModel path={PATHS.buildings.sampleTowerA} position={[0, 0, -18]} scale={1.8} />
-      <AssetModel path={PATHS.buildings.sampleTowerB} position={[-5, 0, 12]} scale={1.6} />
-
-      <AssetModel path={PATHS.roads.sideEntry} position={[0, 0.11, -18]} scale={1.8} />
-      <AssetModel path={PATHS.roads.sideExit} position={[0, 0.11, 18]} rotation={[0, Math.PI, 0]} scale={1.8} />
-      <AssetModel path={PATHS.roads.light} position={[-6, 0, -3]} scale={1.2} />
-      <AssetModel path={PATHS.roads.light} position={[6, 0, 3]} scale={1.2} />
+      <AssetModel path={PATHS.buildings.block} position={[-18, 0, -14]} scale={2.3} />
+      <AssetModel path={PATHS.buildings.corner} position={[18, 0, -14]} rotation={[0, Math.PI / 2, 0]} scale={2.3} />
+      <AssetModel path={PATHS.buildings.door} position={[-18, 0, 16]} scale={2.1} />
+      <AssetModel path={PATHS.buildings.window} position={[18, 0, 16]} scale={2.1} />
+      <AssetModel path={PATHS.buildings.windows} position={[0, 0, -22]} rotation={[0, Math.PI / 2, 0]} scale={2} />
+      <AssetModel path={PATHS.buildings.sampleHouseA} position={[-24, 0, 0]} rotation={[0, Math.PI / 2, 0]} scale={1.9} />
+      <AssetModel path={PATHS.buildings.sampleHouseB} position={[24, 0, 0]} rotation={[0, -Math.PI / 2, 0]} scale={1.9} />
+      <AssetModel path={PATHS.buildings.sampleHouseC} position={[0, 0, 24]} rotation={[0, Math.PI, 0]} scale={1.9} />
+      <AssetModel path={PATHS.buildings.sampleTowerA} position={[0, 0, -26]} scale={2} />
+      <AssetModel path={PATHS.buildings.sampleTowerB} position={[-10, 0, 18]} scale={1.8} />
+      <AssetModel path={PATHS.roads.light} position={[-8, 0, -8]} scale={1.2} />
+      <AssetModel path={PATHS.roads.light} position={[8, 0, 8]} scale={1.2} />
 
       <pointLight position={[0, 7.5, 0]} intensity={7} color={glow} distance={28} />
     </>
@@ -268,7 +272,6 @@ useGLTF.preload(PATHS.castle.towerMid);
 useGLTF.preload(PATHS.castle.towerTop);
 useGLTF.preload(PATHS.castle.towerPeak);
 useGLTF.preload(PATHS.castle.banner);
-useGLTF.preload(PATHS.castle.ground);
 useGLTF.preload(PATHS.castle.treeSmall);
 useGLTF.preload(PATHS.castle.treeLarge);
 useGLTF.preload(PATHS.castle.rockSmall);

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Billboard, Text } from '@react-three/drei';
+import { Billboard, Text, useAnimations, useFBX } from '@react-three/drei';
 import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 const clamp01 = (value) => Math.max(0, Math.min(1, value));
 
@@ -31,6 +32,102 @@ const EliteAura = ({ glow }) => (
     <pointLight position={[0, 1.9, 0]} intensity={4.5} color={glow} distance={14} />
   </group>
 );
+
+const ANIMATED_MOBS = {
+  skeleton: {
+    path: '/assets/quaternius/animated-monsters/Skeleton.fbx',
+    height: 2.45,
+    rotation: [0, Math.PI, 0],
+    clipPriority: ['walk', 'idle', 'run', 'attack']
+  },
+  specter: {
+    path: '/assets/quaternius/animated-monsters/Bat.fbx',
+    height: 1.85,
+    rotation: [0, Math.PI / 2, 0],
+    clipPriority: ['fly', 'idle', 'walk', 'attack']
+  },
+  wisp: {
+    path: '/assets/quaternius/animated-monsters/Bat.fbx',
+    height: 1.55,
+    rotation: [0, Math.PI / 2, 0],
+    clipPriority: ['fly', 'idle', 'walk']
+  },
+  ogre: {
+    path: '/assets/quaternius/animated-monsters/Dragon.fbx',
+    height: 3.35,
+    rotation: [0, Math.PI, 0],
+    clipPriority: ['fly', 'idle', 'walk', 'attack']
+  }
+};
+
+const normalizeAnimatedModel = (scene, targetHeight) => {
+  const cloned = cloneSkinned(scene);
+  cloned.traverse((node) => {
+    if (node.isMesh) {
+      node.castShadow = true;
+      node.receiveShadow = true;
+    }
+  });
+
+  const box = new THREE.Box3().setFromObject(cloned);
+  const center = new THREE.Vector3();
+  const size = new THREE.Vector3();
+  box.getCenter(center);
+  box.getSize(size);
+
+  const height = Math.max(size.y, 0.001);
+  const scale = targetHeight / height;
+  cloned.scale.setScalar(scale);
+  cloned.position.set(
+    -center.x * scale,
+    -box.min.y * scale,
+    -center.z * scale
+  );
+
+  return cloned;
+};
+
+const AnimatedMobAsset = ({ path, targetHeight, rotation = [0, 0, 0], clipPriority = [], tint = null }) => {
+  const group = useRef();
+  const source = useFBX(path);
+  const model = React.useMemo(() => normalizeAnimatedModel(source, targetHeight), [source, targetHeight]);
+  const { actions, names } = useAnimations(source.animations, group);
+
+  useEffect(() => {
+    const preferred = clipPriority
+      .map((candidate) => names.find((name) => name.toLowerCase().includes(candidate)))
+      .find(Boolean) || names[0];
+
+    const action = preferred ? actions[preferred] : null;
+    if (!action) return undefined;
+
+    action.reset().fadeIn(0.2).play();
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.timeScale = 1;
+
+    return () => {
+      action.fadeOut(0.15);
+    };
+  }, [actions, clipPriority, names]);
+
+  useEffect(() => {
+    if (!tint) return;
+
+    model.traverse((node) => {
+      if (!node.isMesh || !node.material) return;
+      const materials = Array.isArray(node.material) ? node.material : [node.material];
+      materials.forEach((material) => {
+        if (material.color) material.color.lerp(new THREE.Color(tint), 0.18);
+      });
+    });
+  }, [model, tint]);
+
+  return (
+    <group ref={group} rotation={rotation}>
+      <primitive object={model} />
+    </group>
+  );
+};
 
 const WolfBody = ({ tint, pulse }) => (
   <group>
@@ -292,23 +389,37 @@ const MobModel = ({ type, role, size, elite, glow, isDamaged, pulse }) => {
 
   const tint = isDamaged ? '#ff7777' : (tintMap[type] || '#7a7365');
   const scale = size || (elite ? 1.25 : 1);
+  const animatedMob = ANIMATED_MOBS[type];
 
   return (
     <group scale={[scale, scale, scale]}>
-      {type === 'wolf' && <WolfBody tint={tint} pulse={pulse} />}
-      {type === 'spider' && <SpiderBody tint={tint} pulse={pulse} />}
-      {type === 'treant' && <TreantBody tint={tint} />}
-      {type === 'skeleton' && <SkeletonBody tint={tint} />}
-      {(type === 'bandit' || type === 'orc') && <BanditBody tint={tint} />}
-      {type === 'specter' && <SpecterBody glow={glow} />}
-      {type === 'guardian' && <GuardianBody tint={tint} />}
-      {type === 'wisp' && <WispBody glow={glow} />}
-      {type === 'ogre' && <OrcBody tint={tint} />}
-      {!['wolf', 'spider', 'treant', 'skeleton', 'bandit', 'orc', 'specter', 'guardian', 'wisp', 'ogre'].includes(type) && (
-        <mesh position={[0, 1, 0]} castShadow>
-          <boxGeometry args={[0.8, 1.2, 0.5]} />
-          <meshStandardMaterial color={tint} />
-        </mesh>
+      {animatedMob ? (
+        <AnimatedMobAsset
+          key={type}
+          path={animatedMob.path}
+          targetHeight={animatedMob.height}
+          rotation={animatedMob.rotation}
+          clipPriority={animatedMob.clipPriority}
+          tint={isDamaged ? '#ff8888' : null}
+        />
+      ) : (
+        <>
+          {type === 'wolf' && <WolfBody tint={tint} pulse={pulse} />}
+          {type === 'spider' && <SpiderBody tint={tint} pulse={pulse} />}
+          {type === 'treant' && <TreantBody tint={tint} />}
+          {type === 'skeleton' && <SkeletonBody tint={tint} />}
+          {(type === 'bandit' || type === 'orc') && <BanditBody tint={tint} />}
+          {type === 'specter' && <SpecterBody glow={glow} />}
+          {type === 'guardian' && <GuardianBody tint={tint} />}
+          {type === 'wisp' && <WispBody glow={glow} />}
+          {type === 'ogre' && <OrcBody tint={tint} />}
+          {!['wolf', 'spider', 'treant', 'skeleton', 'bandit', 'orc', 'specter', 'guardian', 'wisp', 'ogre'].includes(type) && (
+            <mesh position={[0, 1, 0]} castShadow>
+              <boxGeometry args={[0.8, 1.2, 0.5]} />
+              <meshStandardMaterial color={tint} />
+            </mesh>
+          )}
+        </>
       )}
     </group>
   );
@@ -372,5 +483,10 @@ const Mob = ({ position, rotation, type, name, hp, maxHp, role, size, elite, glo
     </group>
   );
 };
+
+useFBX.preload('/assets/quaternius/animated-monsters/Skeleton.fbx');
+useFBX.preload('/assets/quaternius/animated-monsters/Bat.fbx');
+useFBX.preload('/assets/quaternius/animated-monsters/Dragon.fbx');
+useFBX.preload('/assets/quaternius/animated-monsters/Slime.fbx');
 
 export default Mob;
