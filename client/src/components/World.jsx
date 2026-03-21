@@ -461,8 +461,6 @@ const PlayerController = () => {
   const isSystemMenuOpen = useGameStore((state) => state.isSystemMenuOpen);
   const activeDialog = useGameStore((state) => state.activeDialog);
   const { camera } = useThree();
-  const velocityY = useRef(0);
-  const isJumping = useRef(false);
   const pointerLockWasActive = useRef(false);
 
   useEffect(() => {
@@ -480,11 +478,6 @@ const PlayerController = () => {
 
       const state = useGameStore.getState();
       if (state.isMapOpen || state.isInventoryOpen || state.isSystemMenuOpen || state.activeDialog) return;
-
-      if (event.code === 'Space' && !isJumping.current) {
-        velocityY.current = 0.3;
-        isJumping.current = true;
-      }
 
       if (event.code === 'KeyQ') {
         state.castSkill(2);
@@ -604,30 +597,23 @@ const PlayerController = () => {
       .subVectors(frontVector, sideVector)
       .normalize()
       .multiplyScalar(MOVEMENT_SPEED)
-      .applyEuler(camera.rotation);
-
-    velocityY.current -= 0.015;
+      .applyEuler(new THREE.Euler(0, camera.rotation.y, 0));
 
     const currentPosition = camera.position.clone();
     const proposedX = currentPosition.x + direction.x;
     const proposedZ = currentPosition.z + direction.z;
+    const fixedHeight = player.position[1] + 1.6;
 
     const nextPosition = new THREE.Vector3(
       Math.max(-BOUNDARY, Math.min(BOUNDARY, proposedX)),
-      currentPosition.y + velocityY.current,
+      fixedHeight,
       Math.max(-BOUNDARY, Math.min(BOUNDARY, proposedZ))
     );
-
-    if (nextPosition.y < 1.6) {
-      nextPosition.y = 1.6;
-      velocityY.current = 0;
-      isJumping.current = false;
-    }
 
     camera.position.copy(nextPosition);
 
     const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-    movePlayer([nextPosition.x, nextPosition.y - 0.6, nextPosition.z], [0, euler.y, 0]);
+    movePlayer([nextPosition.x, player.position[1], nextPosition.z], [0, euler.y, 0]);
   });
 
   if (isMapOpen || isInventoryOpen || isSystemMenuOpen || activeDialog) {
