@@ -5,7 +5,7 @@ import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcrypt';
 import db from './database.js';
-import { LANDMARKS, MAP_RADIUS, NPCS, WAR_ZONE_RADIUS, WORLD_BOUNDARY as WORLD_LIMIT } from '../client/src/lib/gameData.js';
+import { FACTION_SPAWNS as DEFAULT_FACTION_SPAWNS, LANDMARKS, MAP_RADIUS, NPCS, WAR_ZONE_RADIUS, WORLD_BOUNDARY as WORLD_LIMIT } from '../client/src/lib/gameData.js';
 
 const app = express();
 app.use(cors());
@@ -73,7 +73,7 @@ function loadConfig(attempt = 0) {
   db.all('SELECT * FROM factions', (err, rows) => {
     if (rows) {
       rows.forEach(r => {
-        FACTION_SPAWNS[r.id] = [r.spawn_x, r.spawn_y, r.spawn_z];
+        FACTION_SPAWNS[r.id] = DEFAULT_FACTION_SPAWNS[r.id] || [r.spawn_x, r.spawn_y, r.spawn_z];
       });
       console.log('Loaded Factions:', Object.keys(FACTION_SPAWNS).length);
     }
@@ -299,6 +299,18 @@ function respawnPlayer(player) {
   ];
   player.stats.hp = player.stats.maxHp;
   return player.position;
+}
+
+function getFactionSpawn(faction) {
+  return FACTION_SPAWNS[faction] || [0, 1, 0];
+}
+
+function shouldRelocateToFactionSpawn(position, faction) {
+  if (!position) return true;
+  const [x = 0, , z = 0] = position;
+  const distFromCenter = Math.sqrt((x * x) + (z * z));
+  if (distFromCenter <= WAR_ZONE_RADIUS + 10) return true;
+  return !isInsideSettlementSafety(position, 30);
 }
 
 function isInsideSettlementSafety(position, margin = 34) {
@@ -810,8 +822,8 @@ io.on('connection', (socket) => {
     // Basic Validation
     if (!name || name.length < 3) return callback({ error: 'Invalid name' });
 
-    // Determine spawn based on faction
-    const spawn = FACTION_SPAWNS[faction] || [0, 1, 0];
+    // Determine spawn based on faction city
+    const spawn = getFactionSpawn(faction);
     const stats = CLASS_STATS[charClass];
 
     if (!stats) {
@@ -879,6 +891,17 @@ io.on('connection', (socket) => {
         const inventory = parseJSONSafe(char.inventoryJson, []);
         const stats = buildCombatStats(char.class, char.level || 1);
         const quests = parseJSONSafe(char.quests_json, {});
+        const spawn = getFactionSpawn(char.faction);
+        const currentPosition = [char.position_x, char.position_y, char.position_z];
+        const needsRelocate = shouldRelocateToFactionSpawn(currentPosition);
+        const position = needsRelocate ? [...spawn] : currentPosition;
+
+        if (needsRelocate) {
+          db.run(
+            'UPDATE characters SET position_x = ?, position_y = ?, position_z = ? WHERE id = ?',
+            [position[0], position[1], position[2], char.id]
+          );
+        }
 
         // Add to active players
         players[socket.id] = {
@@ -898,7 +921,7 @@ io.on('connection', (socket) => {
           inventory: inventory,
           quests,
           gold: char.gold,
-          position: [char.position_x, char.position_y, char.position_z],
+          position,
           rotation: [0, char.rotation_y, 0],
           cooldowns: {}
         };

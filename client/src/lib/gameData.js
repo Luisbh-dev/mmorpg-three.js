@@ -3,9 +3,9 @@ export const WORLD_BOUNDARY = 310;
 export const WAR_ZONE_RADIUS = 86;
 
 export const FACTION_SPAWNS = {
-  sun: [0, 1, -248],
-  shadow: [-250, 1, 134],
-  nature: [250, 1, 134]
+  sun: [-82, 1, -210],
+  shadow: [-202, 1, 58],
+  nature: [202, 1, 58]
 };
 
 const FACTION_SETTLEMENTS = {
