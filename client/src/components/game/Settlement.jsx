@@ -189,6 +189,8 @@ function renderCity(landmark, accent, glow) {
       <AssetModel path={PATHS.buildings.sampleHouseC} position={[0, 0, 24]} rotation={[0, Math.PI, 0]} scale={1.9} />
       <AssetModel path={PATHS.buildings.sampleTowerA} position={[0, 0, -26]} scale={2} />
       <AssetModel path={PATHS.buildings.sampleTowerB} position={[-10, 0, 18]} scale={1.8} />
+      <AssetModel path={PATHS.buildings.roofGable} position={[-20, 0, 22]} scale={2.2} />
+      <AssetModel path={PATHS.buildings.roofSlanted} position={[20, 0, 22]} rotation={[0, Math.PI / 2, 0]} scale={2.2} />
       <AssetModel path={PATHS.roads.light} position={[-8, 0, -8]} scale={1.2} />
       <AssetModel path={PATHS.roads.light} position={[8, 0, 8]} scale={1.2} />
 
@@ -208,6 +210,8 @@ function renderTown(landmark, accent, glow) {
       <AssetModel path={PATHS.buildings.sampleHouseC} position={[0, 0, 7]} rotation={[0, Math.PI, 0]} scale={1.25} />
       <AssetModel path={PATHS.buildings.block} position={[-7, 0, 7]} scale={1.2} />
       <AssetModel path={PATHS.buildings.window} position={[7, 0, 7]} scale={1.1} />
+      <AssetModel path={PATHS.buildings.roofGable} position={[-10, 0, 12]} scale={1.45} />
+      <AssetModel path={PATHS.buildings.roofSlanted} position={[10, 0, 12]} rotation={[0, Math.PI / 2, 0]} scale={1.45} />
       <AssetModel path={PATHS.roads.light} position={[0, 0, 0]} scale={1} />
       <pointLight position={[0, 5.2, 0]} intensity={5} color={glow} distance={20} />
     </>

@@ -608,7 +608,7 @@ const PlayerController = () => {
 
     velocityY.current -= 0.015;
 
-    const currentPosition = playerOrigin.clone();
+    const currentPosition = camera.position.clone();
     let proposedX = currentPosition.x + direction.x;
     let proposedZ = currentPosition.z;
 
