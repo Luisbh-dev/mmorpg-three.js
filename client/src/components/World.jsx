@@ -9,6 +9,7 @@ import CharacterModel from './game/CharacterModel';
 import Mob from './game/Mob';
 import Item from './game/Item';
 import NPC from './game/NPC';
+import Settlement from './game/Settlement';
 import Wall from './game/Wall';
 import { FACTION_META, LANDMARKS, MAP_RADIUS, ROADS, WAR_ZONE_RADIUS, WORLD_BOUNDARY, getFactionMeta, getLandmarkColor } from '../lib/gameData';
 
@@ -105,6 +106,11 @@ const CrystalCluster = ({ position, color }) => (
 );
 
 const Landmark = ({ landmark }) => {
+  const isSettlement = ['capital', 'city', 'town', 'village', 'outpost'].includes(landmark.type);
+  if (isSettlement) {
+    return <Settlement landmark={landmark} />;
+  }
+
   const meta = getFactionMeta(landmark.faction);
   const color = getLandmarkColor(landmark);
 

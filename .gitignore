@@ -36,3 +36,6 @@ dist-ssr
 *.db
 *.sqlite
 server/game.db
+
+# Temporary asset extraction
+tmp_assets/

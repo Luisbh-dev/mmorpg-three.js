@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import useGameStore from '../../stores/useGameStore';
-import { LANDMARKS, MAP_RADIUS, WAR_ZONE_RADIUS, getFactionMeta, getLandmarkColor } from '../../lib/gameData';
+import { LANDMARKS, MAP_RADIUS, ROADS, WAR_ZONE_RADIUS, getFactionMeta, getLandmarkColor } from '../../lib/gameData';
 
 const WorldMap = () => {
   const players = useGameStore((state) => state.players);
@@ -83,6 +83,24 @@ const WorldMap = () => {
     ctx.fill();
     ctx.strokeStyle = '#7f2e25';
     ctx.stroke();
+
+    ROADS.forEach((road) => {
+      const roadColor = road.faction === 'sun' ? '#d7b56d' : road.faction === 'shadow' ? '#9f8bc0' : '#87c97e';
+      ctx.beginPath();
+      road.points.forEach((point, index) => {
+        const canvasPoint = toCanvas(point[0], point[1]);
+        if (index === 0) ctx.moveTo(canvasPoint.x, canvasPoint.y);
+        else ctx.lineTo(canvasPoint.x, canvasPoint.y);
+      });
+      ctx.strokeStyle = 'rgba(18, 14, 10, 0.55)';
+      ctx.lineWidth = 9;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      ctx.strokeStyle = roadColor;
+      ctx.lineWidth = 5;
+      ctx.stroke();
+    });
 
     ctx.font = 'bold 16px Segoe UI';
     ctx.textAlign = 'center';

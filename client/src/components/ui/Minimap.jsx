@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import useGameStore from '../../stores/useGameStore';
-import { LANDMARKS, MAP_RADIUS, WAR_ZONE_RADIUS, getFactionMeta, getLandmarkColor } from '../../lib/gameData';
+import { LANDMARKS, MAP_RADIUS, ROADS, WAR_ZONE_RADIUS, getFactionMeta, getLandmarkColor } from '../../lib/gameData';
 
 const Minimap = () => {
   const players = useGameStore((state) => state.players);
@@ -47,6 +47,24 @@ const Minimap = () => {
     ctx.beginPath();
     ctx.arc(center, center, WAR_ZONE_RADIUS * scale, 0, Math.PI * 2);
     ctx.stroke();
+
+    ROADS.forEach((road) => {
+      const roadColor = road.faction === 'sun' ? '#d7b56d' : road.faction === 'shadow' ? '#9f8bc0' : '#87c97e';
+      ctx.beginPath();
+      road.points.forEach((point, index) => {
+        const position = toCanvas(point[0], point[1]);
+        if (index === 0) ctx.moveTo(position.x, position.y);
+        else ctx.lineTo(position.x, position.y);
+      });
+      ctx.strokeStyle = 'rgba(31, 24, 18, 0.35)';
+      ctx.lineWidth = 3.4;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      ctx.strokeStyle = roadColor;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+    });
 
     Object.values(controlPoints).forEach((point) => {
       const ownerMeta = point.owner ? getFactionMeta(point.owner) : null;
