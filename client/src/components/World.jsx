@@ -516,6 +516,7 @@ const PlayerController = () => {
       const state = useGameStore.getState();
       if (event.button !== 0) return;
       if (state.isMapOpen || state.isInventoryOpen || state.isSystemMenuOpen || state.activeDialog) return;
+      if (!document.pointerLockElement) return;
       event.preventDefault();
       state.attack();
     };
@@ -530,7 +531,15 @@ const PlayerController = () => {
 
   useEffect(() => {
     const currentPlayer = players[myId];
-    if (currentPlayer && camera.position.lengthSq() < 1) {
+    if (!currentPlayer) return;
+
+    const targetPosition = new THREE.Vector3(
+      currentPlayer.position[0],
+      currentPlayer.position[1] + 1.6,
+      currentPlayer.position[2]
+    );
+
+    if (camera.position.distanceTo(targetPosition) > 18) {
       camera.position.set(currentPlayer.position[0], currentPlayer.position[1] + 1.6, currentPlayer.position[2]);
     }
   }, [camera, myId, players]);
