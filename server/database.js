@@ -47,6 +47,25 @@ db.serialize(() => {
     if (!hasQuestsJson) {
       db.run(`ALTER TABLE characters ADD COLUMN quests_json TEXT DEFAULT '{}'`);
     }
+
+    const hasEquipped = columns.some((column) => column.name === 'equipped');
+    if (!hasEquipped) {
+      db.run(`ALTER TABLE characters ADD COLUMN equipped TEXT DEFAULT '{}'`);
+    }
+
+    // --- Depth systems (progression / subclasses / questline flags) ---
+    if (!columns.some((c) => c.name === 'subclass')) {
+      db.run(`ALTER TABLE characters ADD COLUMN subclass TEXT DEFAULT ''`);
+    }
+    if (!columns.some((c) => c.name === 'attributes')) {
+      db.run(`ALTER TABLE characters ADD COLUMN attributes TEXT DEFAULT '{"str":0,"vit":0,"dex":0,"spi":0}'`);
+    }
+    if (!columns.some((c) => c.name === 'unspent_points')) {
+      db.run(`ALTER TABLE characters ADD COLUMN unspent_points INTEGER DEFAULT 0`);
+    }
+    if (!columns.some((c) => c.name === 'flags_json')) {
+      db.run(`ALTER TABLE characters ADD COLUMN flags_json TEXT DEFAULT '{}'`);
+    }
   });
 
   db.run(`

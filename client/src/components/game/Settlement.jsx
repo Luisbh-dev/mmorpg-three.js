@@ -1,67 +1,10 @@
-import React, { useMemo } from 'react';
-import { Billboard, Text, useGLTF } from '@react-three/drei';
+import React from 'react';
+import { Billboard, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import { getFactionMeta } from '../../lib/gameData';
+import { AssetModel, PATHS } from './kenneyAssets';
 
-const ROOT = '/assets/kenney';
-
-const PATHS = {
-  castle: {
-    gate: `${ROOT}/castle-kit/gate.glb`,
-    wall: `${ROOT}/castle-kit/wall.glb`,
-    wallCorner: `${ROOT}/castle-kit/wall-corner.glb`,
-    wallHalf: `${ROOT}/castle-kit/wall-half.glb`,
-    wallPillar: `${ROOT}/castle-kit/wall-pillar.glb`,
-    towerBase: `${ROOT}/castle-kit/tower-square-base.glb`,
-    towerMid: `${ROOT}/castle-kit/tower-square-mid.glb`,
-    towerTop: `${ROOT}/castle-kit/tower-square-top.glb`,
-    towerPeak: `${ROOT}/castle-kit/tower-top.glb`,
-    banner: `${ROOT}/castle-kit/flag-banner-long.glb`,
-    ground: `${ROOT}/castle-kit/ground-hills.glb`,
-    treeSmall: `${ROOT}/castle-kit/tree-small.glb`,
-    treeLarge: `${ROOT}/castle-kit/tree-large.glb`,
-    rockSmall: `${ROOT}/castle-kit/rocks-small.glb`,
-    rockLarge: `${ROOT}/castle-kit/rocks-large.glb`
-  },
-  buildings: {
-    block: `${ROOT}/modular-buildings/building-block.glb`,
-    corner: `${ROOT}/modular-buildings/building-corner.glb`,
-    door: `${ROOT}/modular-buildings/building-door.glb`,
-    window: `${ROOT}/modular-buildings/building-window.glb`,
-    windows: `${ROOT}/modular-buildings/building-windows.glb`,
-    sampleHouseA: `${ROOT}/modular-buildings/building-sample-house-a.glb`,
-    sampleHouseB: `${ROOT}/modular-buildings/building-sample-house-b.glb`,
-    sampleHouseC: `${ROOT}/modular-buildings/building-sample-house-c.glb`,
-    sampleTowerA: `${ROOT}/modular-buildings/building-sample-tower-a.glb`,
-    sampleTowerB: `${ROOT}/modular-buildings/building-sample-tower-b.glb`,
-    roofGable: `${ROOT}/modular-buildings/roof-gable.glb`,
-    roofSlanted: `${ROOT}/modular-buildings/roof-slanted.glb`
-  },
-  roads: {
-    straight: `${ROOT}/city-kit-roads/road-straight.glb`,
-    curve: `${ROOT}/city-kit-roads/road-curve.glb`,
-    crossroad: `${ROOT}/city-kit-roads/road-crossroad.glb`,
-    intersection: `${ROOT}/city-kit-roads/road-intersection.glb`,
-    end: `${ROOT}/city-kit-roads/road-end.glb`,
-    split: `${ROOT}/city-kit-roads/road-split.glb`,
-    square: `${ROOT}/city-kit-roads/road-square.glb`,
-    bend: `${ROOT}/city-kit-roads/road-bend.glb`,
-    side: `${ROOT}/city-kit-roads/road-side.glb`,
-    sideEntry: `${ROOT}/city-kit-roads/road-side-entry.glb`,
-    sideExit: `${ROOT}/city-kit-roads/road-side-exit.glb`,
-    light: `${ROOT}/city-kit-roads/light-square.glb`,
-    sign: `${ROOT}/city-kit-roads/sign-highway-wide.glb`
-  }
-};
-
-function AssetModel({ path, position = [0, 0, 0], rotation = [0, 0, 0], scale = 1 }) {
-  const { scene } = useGLTF(path);
-  const cloned = useMemo(() => scene.clone(true), [scene]);
-
-  return <primitive object={cloned} position={position} rotation={rotation} scale={scale} />;
-}
-
-function SettlementLabel({ title, subtitle, accent }) {
+function SettlementLabel({ title, subtitle, themeLabel, accent }) {
   return (
     <Billboard position={[0, 10.5, 0]}>
       <group>
@@ -71,9 +14,92 @@ function SettlementLabel({ title, subtitle, accent }) {
         <Text position={[0, -0.62, 0]} fontSize={0.28} color={accent} outlineWidth={0.02} outlineColor="#000000">
           {subtitle}
         </Text>
+        {themeLabel ? (
+          <Text position={[0, -1.0, 0]} fontSize={0.24} color="#cdbfa4" outlineWidth={0.015} outlineColor="#000000">
+            {themeLabel}
+          </Text>
+        ) : null}
       </group>
     </Billboard>
   );
+}
+
+// A distinct focal monument per city theme (built from primitives so it adds
+// silhouette + colour identity without loading extra art).
+function SignatureStructure({ kind, accent }) {
+  const glow = (c, i = 1) => <meshStandardMaterial color={c} emissive={c} emissiveIntensity={i} roughness={0.3} metalness={0.4} />;
+  switch (kind) {
+    case 'forge_anvil':
+      return (
+        <group position={[0, 0, 0]}>
+          <mesh position={[0, 0.6, 0]} castShadow><boxGeometry args={[2.4, 1.2, 1.4]} /><meshStandardMaterial color="#2b2b30" roughness={0.6} metalness={0.6} /></mesh>
+          <mesh position={[0, 1.5, 0]}><boxGeometry args={[2.8, 0.5, 1.0]} /><meshStandardMaterial color="#3a3a40" metalness={0.7} roughness={0.4} /></mesh>
+          <mesh position={[0, 2.1, 0]}><sphereGeometry args={[0.4, 16, 16]} />{glow('#ff7a2c', 1.6)}</mesh>
+        </group>
+      );
+    case 'arcane_obelisk':
+      return (
+        <group position={[0, 0, 0]}>
+          <mesh position={[0, 3, 0]} castShadow><cylinderGeometry args={[0.5, 0.9, 6, 4]} /><meshStandardMaterial color="#2c2540" roughness={0.5} /></mesh>
+          <mesh position={[0, 6.6, 0]}><octahedronGeometry args={[0.8, 0]} />{glow(accent, 1.4)}</mesh>
+        </group>
+      );
+    case 'throne_banners':
+      return (
+        <group position={[0, 0, 0]}>
+          {[-2.2, 2.2].map((x, i) => (
+            <group key={i} position={[x, 0, 0]}>
+              <mesh position={[0, 2.5, 0]} castShadow><cylinderGeometry args={[0.12, 0.12, 5]} /><meshStandardMaterial color="#5a4a2c" /></mesh>
+              <mesh position={[0, 4, 0]}><planeGeometry args={[1.2, 2]} /><meshStandardMaterial color={accent} emissive={accent} emissiveIntensity={0.3} side={THREE.DoubleSide} /></mesh>
+            </group>
+          ))}
+        </group>
+      );
+    case 'temple_spire':
+      return (
+        <group position={[0, 0, 0]}>
+          <mesh position={[0, 2.4, 0]} castShadow><coneGeometry args={[1.4, 4.8, 8]} /><meshStandardMaterial color="#d8d2c2" roughness={0.7} /></mesh>
+          <mesh position={[0, 5.2, 0]}><sphereGeometry args={[0.45, 16, 16]} />{glow(accent, 1.2)}</mesh>
+        </group>
+      );
+    case 'watch_brazier':
+      return (
+        <group position={[0, 0, 0]}>
+          <mesh position={[0, 1.4, 0]} castShadow><cylinderGeometry args={[0.45, 0.6, 2.8, 8]} /><meshStandardMaterial color="#4a423a" /></mesh>
+          <mesh position={[0, 3, 0]}><sphereGeometry args={[0.5, 14, 14]} />{glow('#ff8a3a', 1.6)}</mesh>
+        </group>
+      );
+    case 'granary':
+      return (
+        <group position={[0, 0, 0]}>
+          {[-1.6, 0, 1.6].map((x, i) => (
+            <mesh key={i} position={[x, 1.6, 0]} castShadow><cylinderGeometry args={[0.7, 0.8, 3.2, 10]} /><meshStandardMaterial color="#b89a5c" roughness={0.85} /></mesh>
+          ))}
+        </group>
+      );
+    case 'hunters_totem':
+      return (
+        <group position={[0, 0, 0]}>
+          <mesh position={[0, 2, 0]} castShadow><cylinderGeometry args={[0.4, 0.5, 4, 6]} /><meshStandardMaterial color="#6b4a2c" roughness={0.9} /></mesh>
+          <mesh position={[0, 4.3, 0]}><coneGeometry args={[0.9, 1.2, 6]} /><meshStandardMaterial color="#3f7d45" /></mesh>
+        </group>
+      );
+    case 'market_stalls':
+      return (
+        <group position={[0, 0, 0]}>
+          {[[-2, 0], [2, 0], [0, 2]].map(([x, z], i) => (
+            <group key={i} position={[x, 0, z]}>
+              <mesh position={[0, 1.6, 0]}><boxGeometry args={[1.6, 0.2, 1.6]} /><meshStandardMaterial color={i % 2 ? '#9a3b3b' : '#d8b24a'} /></mesh>
+              {[[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]].map(([px, pz], j) => (
+                <mesh key={j} position={[px, 0.8, pz]}><cylinderGeometry args={[0.06, 0.06, 1.6]} /><meshStandardMaterial color="#6b5436" /></mesh>
+              ))}
+            </group>
+          ))}
+        </group>
+      );
+    default:
+      return null;
+  }
 }
 
 function SettlementFoundation({ landmark, accent }) {
@@ -162,7 +188,6 @@ function renderCapital(landmark, accent, glow) {
       <AssetModel path={PATHS.castle.rockLarge} position={[-17, 0, -15]} scale={2.4} />
       <AssetModel path={PATHS.castle.rockSmall} position={[16, 0, -16]} scale={2.1} />
 
-      <pointLight position={[0, 8, 0]} intensity={9} color={glow} distance={34} />
     </>
   );
 }
@@ -194,7 +219,19 @@ function renderCity(landmark, accent, glow) {
       <AssetModel path={PATHS.roads.light} position={[-8, 0, -8]} scale={1.2} />
       <AssetModel path={PATHS.roads.light} position={[8, 0, 8]} scale={1.2} />
 
-      <pointLight position={[0, 7.5, 0]} intensity={7} color={glow} distance={28} />
+      {/* Outer ring of homes + lamps + greenery so the city reads as lived-in */}
+      <AssetModel path={PATHS.buildings.sampleHouseA} position={[-30, 0, -22]} rotation={[0, 0.5, 0]} scale={1.7} />
+      <AssetModel path={PATHS.buildings.sampleHouseC} position={[30, 0, -22]} rotation={[0, -0.5, 0]} scale={1.7} />
+      <AssetModel path={PATHS.buildings.sampleHouseB} position={[-30, 0, 22]} rotation={[0, 2.4, 0]} scale={1.7} />
+      <AssetModel path={PATHS.buildings.block} position={[30, 0, 22]} rotation={[0, -2.4, 0]} scale={1.9} />
+      <AssetModel path={PATHS.buildings.windows} position={[-32, 0, 0]} rotation={[0, Math.PI / 2, 0]} scale={1.9} />
+      <AssetModel path={PATHS.buildings.door} position={[32, 0, 0]} rotation={[0, -Math.PI / 2, 0]} scale={1.9} />
+      <AssetModel path={PATHS.roads.light} position={[-16, 0, 16]} scale={1.2} />
+      <AssetModel path={PATHS.roads.light} position={[16, 0, -16]} scale={1.2} />
+      <AssetModel path={PATHS.castle.treeLarge} position={[-34, 0, -30]} scale={2.2} />
+      <AssetModel path={PATHS.castle.treeSmall} position={[34, 0, 30]} scale={1.9} />
+      <AssetModel path={PATHS.castle.banner} position={[0, 0, 0]} scale={1.6} />
+
     </>
   );
 }
@@ -213,7 +250,6 @@ function renderTown(landmark, accent, glow) {
       <AssetModel path={PATHS.buildings.roofGable} position={[-10, 0, 12]} scale={1.45} />
       <AssetModel path={PATHS.buildings.roofSlanted} position={[10, 0, 12]} rotation={[0, Math.PI / 2, 0]} scale={1.45} />
       <AssetModel path={PATHS.roads.light} position={[0, 0, 0]} scale={1} />
-      <pointLight position={[0, 5.2, 0]} intensity={5} color={glow} distance={20} />
     </>
   );
 }
@@ -228,7 +264,6 @@ function renderVillage(landmark, accent, glow) {
       <AssetModel path={PATHS.buildings.door} position={[0, 0, 4]} scale={1} />
       <AssetModel path={PATHS.castle.treeSmall} position={[-6, 0, -5]} scale={1.5} />
       <AssetModel path={PATHS.castle.treeSmall} position={[6, 0, -4]} scale={1.4} />
-      <pointLight position={[0, 4.5, 0]} intensity={4} color={glow} distance={16} />
     </>
   );
 }
@@ -244,7 +279,6 @@ function renderOutpost(landmark, accent, glow) {
       <AssetModel path={PATHS.castle.towerMid} position={[0, 1.6, 5]} scale={1.2} />
       <AssetModel path={PATHS.castle.towerTop} position={[0, 3.8, 5]} scale={1.1} />
       <AssetModel path={PATHS.roads.end} position={[0, 0.11, -9]} rotation={[0, Math.PI, 0]} scale={1.1} />
-      <pointLight position={[0, 6, 0]} intensity={4.5} color={glow} distance={18} />
     </>
   );
 }
@@ -261,49 +295,10 @@ const Settlement = ({ landmark }) => {
       {landmark.type === 'town' && renderTown(landmark, accent, glow)}
       {landmark.type === 'village' && renderVillage(landmark, accent, glow)}
       {landmark.type === 'outpost' && renderOutpost(landmark, accent, glow)}
-      <SettlementLabel title={landmark.name} subtitle={landmark.shortName} accent={accent} />
+      {landmark.signature ? <SignatureStructure kind={landmark.signature} accent={landmark.bannerTint || accent} /> : null}
+      <SettlementLabel title={landmark.name} subtitle={landmark.shortName} themeLabel={landmark.themeLabel} accent={accent} />
     </group>
   );
 };
-
-useGLTF.preload(PATHS.castle.gate);
-useGLTF.preload(PATHS.castle.wall);
-useGLTF.preload(PATHS.castle.wallCorner);
-useGLTF.preload(PATHS.castle.wallHalf);
-useGLTF.preload(PATHS.castle.wallPillar);
-useGLTF.preload(PATHS.castle.towerBase);
-useGLTF.preload(PATHS.castle.towerMid);
-useGLTF.preload(PATHS.castle.towerTop);
-useGLTF.preload(PATHS.castle.towerPeak);
-useGLTF.preload(PATHS.castle.banner);
-useGLTF.preload(PATHS.castle.treeSmall);
-useGLTF.preload(PATHS.castle.treeLarge);
-useGLTF.preload(PATHS.castle.rockSmall);
-useGLTF.preload(PATHS.castle.rockLarge);
-useGLTF.preload(PATHS.buildings.sampleHouseA);
-useGLTF.preload(PATHS.buildings.sampleHouseB);
-useGLTF.preload(PATHS.buildings.sampleHouseC);
-useGLTF.preload(PATHS.buildings.sampleTowerA);
-useGLTF.preload(PATHS.buildings.sampleTowerB);
-useGLTF.preload(PATHS.buildings.block);
-useGLTF.preload(PATHS.buildings.corner);
-useGLTF.preload(PATHS.buildings.door);
-useGLTF.preload(PATHS.buildings.window);
-useGLTF.preload(PATHS.buildings.windows);
-useGLTF.preload(PATHS.buildings.roofGable);
-useGLTF.preload(PATHS.buildings.roofSlanted);
-useGLTF.preload(PATHS.roads.crossroad);
-useGLTF.preload(PATHS.roads.square);
-useGLTF.preload(PATHS.roads.straight);
-useGLTF.preload(PATHS.roads.curve);
-useGLTF.preload(PATHS.roads.intersection);
-useGLTF.preload(PATHS.roads.side);
-useGLTF.preload(PATHS.roads.sideEntry);
-useGLTF.preload(PATHS.roads.sideExit);
-useGLTF.preload(PATHS.roads.end);
-useGLTF.preload(PATHS.roads.bend);
-useGLTF.preload(PATHS.roads.split);
-useGLTF.preload(PATHS.roads.light);
-useGLTF.preload(PATHS.roads.sign);
 
 export default Settlement;

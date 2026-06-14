@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Billboard, Environment, PointerLockControls, Sky, Stars, Text } from '@react-three/drei';
+import { Billboard, Environment, Stars, Text } from '@react-three/drei';
 import * as THREE from 'three';
 import useGameStore from '../stores/useGameStore';
 import Terrain from './game/Terrain';
@@ -10,46 +10,31 @@ import Item from './game/Item';
 import NPC from './game/NPC';
 import Settlement from './game/Settlement';
 import Wall from './game/Wall';
-import { FACTION_META, LANDMARKS, MAP_RADIUS, ROADS, WAR_ZONE_RADIUS, WORLD_BOUNDARY, getFactionMeta, getLandmarkColor } from '../lib/gameData';
+import InstancedScatter from './game/InstancedScatter';
+import PointsOfInterest from './game/PointsOfInterest';
+import Establishment from './game/Establishment';
+import { renderCentralStructure } from './game/CentralStructures';
+import { ESTABLISHMENTS, FACTION_META, LANDMARKS, POINTS_OF_INTEREST, ROADS, getFactionMeta } from '../lib/gameData';
+import { getTerrainHeight } from '../lib/terrain';
+import { WALLS, resolveMove } from '../lib/colliders';
 
-const MOVEMENT_SPEED = 0.3;
-const BOUNDARY = WORLD_BOUNDARY;
-const INNER_WALL_THICKNESS = 1.1;
-const RADIAL_ANGLES = [Math.PI / 4, Math.PI, (7 * Math.PI) / 4];
+// Third-person tuning
+const MOVE_SPEED = 11; // world units / second
+const EMIT_INTERVAL = 0.1; // seconds between network position updates (~10Hz)
+const LOOK_SENS = 0.0035;
+const PITCH_MIN = 0.12;
+const PITCH_MAX = 1.25;
+const DIST_MIN = 3.5;
+const DIST_MAX = 16;
 
-const WALLS = [];
-const numSegments = 16;
-const angleStep = (Math.PI * 2) / numSegments;
-const gateSize = 0.2;
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-for (let i = 0; i < numSegments; i += 1) {
-  const angle = i * angleStep;
-  const isGate =
-    Math.abs(angle - 0) < gateSize ||
-    Math.abs(angle - Math.PI / 2) < gateSize ||
-    Math.abs(angle - Math.PI) < gateSize ||
-    Math.abs(angle - (3 * Math.PI) / 2) < gateSize;
-
-  if (!isGate) {
-    const x = Math.sin(angle) * WAR_ZONE_RADIUS;
-    const z = Math.cos(angle) * WAR_ZONE_RADIUS;
-    const length = (2 * WAR_ZONE_RADIUS * Math.sin(angleStep / 2)) + 2;
-    WALLS.push({ position: [x, 0, z], rotation: angle, length });
-  }
+function smoothAngle(current, target, t) {
+  let diff = target - current;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  return current + (diff * t);
 }
-
-RADIAL_ANGLES.forEach((angle) => {
-  const radialLength = MAP_RADIUS - WAR_ZONE_RADIUS;
-  const radialCenterDistance = WAR_ZONE_RADIUS + (radialLength / 2);
-  const x = Math.sin(angle) * radialCenterDistance;
-  const z = Math.cos(angle) * radialCenterDistance;
-
-  WALLS.push({
-    position: [x, 0, z],
-    rotation: angle + (Math.PI / 2),
-    length: radialLength
-  });
-});
 
 const HealthBillboard = ({ hp, maxHp, name, tone = '#ffffff' }) => {
   const safeRatio = Math.max(0, Math.min(1, hp / Math.max(maxHp, 1)));
@@ -80,18 +65,47 @@ const HealthBillboard = ({ hp, maxHp, name, tone = '#ffffff' }) => {
   );
 };
 
-const Tree = ({ position, scale = 1 }) => (
-  <group position={position} scale={scale}>
-    <mesh position={[0, 1.2, 0]} castShadow receiveShadow>
-      <cylinderGeometry args={[0.2, 0.38, 2.4, 8]} />
-      <meshStandardMaterial color="#694731" roughness={1} />
+const FloatingCombatText = ({ data }) => {
+  const ref = useRef();
+  useFrame(() => {
+    if (!ref.current) return;
+    const t = (Date.now() - data.born) / 1000;
+    ref.current.position.set(data.position[0], data.position[1] + 2 + (t * 1.9), data.position[2]);
+  });
+  return (
+    <group ref={ref} position={[data.position[0], data.position[1] + 2, data.position[2]]}>
+      <Billboard>
+        <Text fontSize={0.7 * (data.scale || 1)} color={data.color} anchorX="center" anchorY="middle" outlineWidth={0.05} outlineColor="#1a0d05">
+          {data.text}
+        </Text>
+      </Billboard>
+    </group>
+  );
+};
+
+const CombatTextLayer = () => {
+  const floatingTexts = useGameStore((state) => state.floatingTexts);
+  return floatingTexts.map((data) => <FloatingCombatText key={data.id} data={data} />);
+};
+
+// A quick poof when a mob dies (the server removes the mob immediately).
+const DyingMob = ({ data }) => {
+  const ref = useRef();
+  useFrame(() => {
+    if (!ref.current) return;
+    const t = (Date.now() - data.born) / 650;
+    const k = Math.min(1, t);
+    ref.current.scale.setScalar(0.6 + (k * 1.6));
+    if (ref.current.material) ref.current.material.opacity = Math.max(0, 0.7 - (k * 0.7));
+    ref.current.position.y = data.position[1] + 1 + (k * 0.6);
+  });
+  return (
+    <mesh ref={ref} position={[data.position[0], data.position[1] + 1, data.position[2]]}>
+      <sphereGeometry args={[0.5, 12, 12]} />
+      <meshBasicMaterial color="#d7c7a0" transparent opacity={0.7} />
     </mesh>
-    <mesh position={[0, 3.1, 0]} castShadow>
-      <coneGeometry args={[1.4, 3.2, 8]} />
-      <meshStandardMaterial color="#2d8747" roughness={1} />
-    </mesh>
-  </group>
-);
+  );
+};
 
 const CrystalCluster = ({ position, color }) => (
   <group position={position}>
@@ -110,225 +124,7 @@ const Landmark = ({ landmark }) => {
     return <Settlement landmark={landmark} />;
   }
 
-  const meta = getFactionMeta(landmark.faction);
-  const color = getLandmarkColor(landmark);
-
-  if (landmark.type === 'capital') {
-    return (
-      <group position={landmark.position}>
-        <mesh receiveShadow castShadow>
-          <cylinderGeometry args={[4.4, 5.2, 1.4, 24]} />
-          <meshStandardMaterial color="#52473c" roughness={0.9} />
-        </mesh>
-        <mesh position={[0, 3.2, 0]} castShadow>
-          <cylinderGeometry args={[1.2, 1.8, 5.4, 12]} />
-          <meshStandardMaterial color="#bdb2a2" roughness={0.7} />
-        </mesh>
-        <mesh position={[0, 6.8, 0]} castShadow>
-          <octahedronGeometry args={[1.5, 0]} />
-          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.8} roughness={0.2} />
-        </mesh>
-        <pointLight position={[0, 6.2, 0]} intensity={10} color={meta.glow} distance={20} />
-      </group>
-    );
-  }
-
-  if (landmark.type === 'city') {
-    return (
-      <group position={landmark.position}>
-        <mesh receiveShadow castShadow>
-          <cylinderGeometry args={[5.6, 6.2, 1.2, 28]} />
-          <meshStandardMaterial color="#4b4038" roughness={0.95} />
-        </mesh>
-        <mesh position={[0, 2.8, 0]} castShadow>
-          <cylinderGeometry args={[2.1, 2.8, 4.8, 14]} />
-          <meshStandardMaterial color={color} roughness={0.7} />
-        </mesh>
-        <mesh position={[-3.1, 1.4, 0.2]} rotation={[0, 0.1, 0.06]} castShadow>
-          <boxGeometry args={[1.4, 2.2, 1.2]} />
-          <meshStandardMaterial color="#7f6d5f" roughness={0.95} />
-        </mesh>
-        <mesh position={[3.0, 1.5, -0.4]} rotation={[0, -0.12, -0.04]} castShadow>
-          <boxGeometry args={[1.5, 2.4, 1.15]} />
-          <meshStandardMaterial color="#6d5b4c" roughness={0.95} />
-        </mesh>
-        <mesh position={[0, 5.5, 0]} castShadow>
-          <octahedronGeometry args={[1.1, 0]} />
-          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={0.9} roughness={0.18} />
-        </mesh>
-        <pointLight position={[0, 5.2, 0]} intensity={9} color={meta.glow} distance={18} />
-      </group>
-    );
-  }
-
-  if (landmark.type === 'town') {
-    return (
-      <group position={landmark.position}>
-        <mesh receiveShadow castShadow>
-          <cylinderGeometry args={[3.4, 3.9, 1, 20]} />
-          <meshStandardMaterial color="#4f4237" roughness={0.98} />
-        </mesh>
-        <mesh position={[-1.9, 1.2, 0.35]} rotation={[0, 0.08, 0.1]} castShadow>
-          <boxGeometry args={[1.05, 1.7, 0.95]} />
-          <meshStandardMaterial color="#846b57" roughness={0.95} />
-        </mesh>
-        <mesh position={[1.8, 1.15, -0.25]} rotation={[0, -0.05, -0.08]} castShadow>
-          <boxGeometry args={[1.1, 1.6, 0.9]} />
-          <meshStandardMaterial color="#8c755d" roughness={0.95} />
-        </mesh>
-        <mesh position={[0, 2.7, 0]} castShadow>
-          <cylinderGeometry args={[0.8, 1.2, 3.0, 10]} />
-          <meshStandardMaterial color={color} roughness={0.72} />
-        </mesh>
-        <mesh position={[0, 4.5, 0]} castShadow>
-          <octahedronGeometry args={[0.7, 0]} />
-          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={0.75} roughness={0.2} />
-        </mesh>
-        <pointLight position={[0, 4.3, 0]} intensity={6} color={meta.glow} distance={14} />
-      </group>
-    );
-  }
-
-  if (landmark.type === 'village') {
-    return (
-      <group position={landmark.position}>
-        <mesh receiveShadow castShadow>
-          <cylinderGeometry args={[2.6, 3.0, 0.9, 16]} />
-          <meshStandardMaterial color="#564539" roughness={1} />
-        </mesh>
-        <mesh position={[-1.45, 0.95, 0.25]} rotation={[0, 0.18, 0.12]} castShadow>
-          <coneGeometry args={[0.7, 1.3, 6]} />
-          <meshStandardMaterial color="#7d6048" roughness={1} />
-        </mesh>
-        <mesh position={[1.25, 0.9, -0.15]} rotation={[0, -0.12, -0.1]} castShadow>
-          <coneGeometry args={[0.65, 1.2, 6]} />
-          <meshStandardMaterial color="#8b7358" roughness={1} />
-        </mesh>
-        <mesh position={[0, 1.7, 0]} castShadow>
-          <boxGeometry args={[0.65, 0.65, 0.65]} />
-          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={0.5} />
-        </mesh>
-        <mesh position={[0.9, 0.95, 0.55]} castShadow>
-          <cylinderGeometry args={[0.06, 0.06, 1.4]} />
-          <meshStandardMaterial color="#9c7450" />
-        </mesh>
-        <mesh position={[-0.9, 1.0, -0.55]} castShadow>
-          <sphereGeometry args={[0.35, 10, 10]} />
-          <meshStandardMaterial color="#5fa35a" />
-        </mesh>
-      </group>
-    );
-  }
-
-  if (landmark.type === 'outpost') {
-    return (
-      <group position={landmark.position}>
-        <mesh receiveShadow castShadow>
-          <cylinderGeometry args={[2.4, 2.9, 1, 18]} />
-          <meshStandardMaterial color="#3f342e" roughness={1} />
-        </mesh>
-        <mesh position={[0, 2.4, 0]} castShadow>
-          <cylinderGeometry args={[0.7, 1.0, 4.2, 10]} />
-          <meshStandardMaterial color={color} roughness={0.8} />
-        </mesh>
-        <mesh position={[0, 4.8, 0]} castShadow>
-          <boxGeometry args={[1.4, 0.5, 1.4]} />
-          <meshStandardMaterial color="#6c5540" roughness={0.95} />
-        </mesh>
-        <mesh position={[0, 5.5, 0]} castShadow>
-          <octahedronGeometry args={[0.55, 0]} />
-          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={0.8} />
-        </mesh>
-        <pointLight position={[0, 5.1, 0]} intensity={4.5} color={meta.glow} distance={12} />
-      </group>
-    );
-  }
-
-  if (landmark.type === 'fortress') {
-    return (
-      <group position={landmark.position}>
-        <mesh receiveShadow castShadow>
-          <cylinderGeometry args={[5.8, 6.3, 1.8, 28]} />
-          <meshStandardMaterial color="#433832" roughness={0.95} />
-        </mesh>
-        <mesh position={[0, 2.8, 0]} castShadow>
-          <ringGeometry args={[4.5, 5.6, 32]} />
-          <meshBasicMaterial color={color} transparent opacity={0.65} side={THREE.DoubleSide} />
-        </mesh>
-        <mesh position={[0, 4.4, 0]} castShadow>
-          <boxGeometry args={[2.6, 5.2, 2.6]} />
-          <meshStandardMaterial color={color} roughness={0.55} />
-        </mesh>
-        <mesh position={[0, 7.8, 0]} castShadow>
-          <octahedronGeometry args={[1.25, 0]} />
-          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={1.1} roughness={0.15} />
-        </mesh>
-        <pointLight position={[0, 7.2, 0]} intensity={12} color={meta.glow} distance={24} />
-      </group>
-    );
-  }
-
-  if (landmark.type === 'arena') {
-    return (
-      <group position={landmark.position}>
-        <mesh receiveShadow castShadow>
-          <cylinderGeometry args={[6.2, 6.8, 1.3, 36]} />
-          <meshStandardMaterial color="#4a3f35" roughness={0.95} />
-        </mesh>
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.08, 0]} receiveShadow>
-          <torusGeometry args={[4.6, 0.24, 14, 32]} />
-          <meshBasicMaterial color={color} transparent opacity={0.8} side={THREE.DoubleSide} />
-        </mesh>
-        <mesh position={[0, 3.4, 0]} castShadow>
-          <boxGeometry args={[2.2, 4.2, 2.2]} />
-          <meshStandardMaterial color={color} roughness={0.55} />
-        </mesh>
-        <mesh position={[0, 6.1, 0]} castShadow>
-          <octahedronGeometry args={[1.2, 0]} />
-          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={1} />
-        </mesh>
-        <pointLight position={[0, 5.5, 0]} intensity={12} color={meta.glow} distance={24} />
-      </group>
-    );
-  }
-
-  if (landmark.type === 'gate') {
-    return (
-      <group position={landmark.position}>
-        <mesh position={[0, 2.1, 0]} castShadow>
-          <boxGeometry args={[1.4, 4.2, 0.7]} />
-          <meshStandardMaterial color={color} roughness={0.8} />
-        </mesh>
-        <mesh position={[0, 4.75, 0]} castShadow>
-          <boxGeometry args={[4.6, 0.55, 1.1]} />
-          <meshStandardMaterial color="#5a4635" roughness={0.9} />
-        </mesh>
-        <mesh position={[0, 2.25, 0]} castShadow>
-          <torusGeometry args={[1.7, 0.12, 12, 20, Math.PI]} />
-          <meshStandardMaterial color={meta.glow} emissive={meta.glow} emissiveIntensity={0.7} />
-        </mesh>
-        <pointLight position={[0, 4.2, 0]} intensity={4} color={meta.glow} distance={16} />
-      </group>
-    );
-  }
-
-  return (
-    <group position={landmark.position}>
-      <mesh position={[0, 0.95, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[2.4, 2.8, 1.8, 14]} />
-        <meshStandardMaterial color="#4e3f35" roughness={1} />
-      </mesh>
-      <mesh position={[-1.7, 0.8, 0.4]} rotation={[0, 0, 0.3]} castShadow>
-        <boxGeometry args={[0.6, 1.4, 0.55]} />
-        <meshStandardMaterial color="#7a6358" roughness={0.95} />
-      </mesh>
-      <mesh position={[1.2, 1.2, -0.3]} rotation={[0.15, 0.1, -0.2]} castShadow>
-        <boxGeometry args={[0.8, 1.1, 0.65]} />
-        <meshStandardMaterial color="#89745f" roughness={0.95} />
-      </mesh>
-      <pointLight position={[0, 3.1, 0]} intensity={2.5} color={meta.glow} distance={10} />
-    </group>
-  );
+  return renderCentralStructure(landmark);
 };
 
 const FloatingMotes = () => {
@@ -415,16 +211,29 @@ const ControlPointBeacon = ({ point }) => {
   );
 };
 
-const Player = ({ id, position, rotation, faction, isMe, name, stats, lastAttack, charClass }) => {
+const Player = ({ id, position, rotation, faction, isMe, name, stats, charClass }) => {
   const ref = useRef();
+  const targetVec = useMemo(() => new THREE.Vector3(), []);
+  const movingRef = useRef(false);
+  const [moving, setMoving] = useState(false);
+  const attackStamp = useGameStore((s) => s.attackStamps[id] || 0);
+  const attackKind = useGameStore((s) => s.attackKinds[id] || null);
   const maxHp = stats?.maxHp || 100;
   const hp = stats?.hp || 100;
-  const isAttacking = lastAttack && (Date.now() - lastAttack < 300);
+  const isAttacking = attackStamp && (Date.now() - attackStamp < 450);
 
   useFrame(() => {
     if (!ref.current) return;
 
-    ref.current.position.lerp(new THREE.Vector3(...position), 0.2);
+    targetVec.set(position[0], position[1], position[2]);
+    const dist = ref.current.position.distanceTo(targetVec);
+    ref.current.position.lerp(targetVec, 0.2);
+
+    const isMovingNow = dist > 0.08;
+    if (isMovingNow !== movingRef.current) {
+      movingRef.current = isMovingNow;
+      setMoving(isMovingNow);
+    }
 
     if (rotation) {
       let targetRot = rotation[1];
@@ -444,64 +253,116 @@ const Player = ({ id, position, rotation, faction, isMe, name, stats, lastAttack
         isMe={false}
         charClass={charClass}
         isAttacking={isAttacking}
+        attackStamp={attackStamp}
+        attackKind={attackKind}
+        moving={moving}
       />
       <HealthBillboard hp={hp} maxHp={maxHp} name={name || 'Unknown'} tone={getFactionMeta(faction).color} />
     </group>
   );
 };
 
+function shouldIgnoreInput(event) {
+  const target = event.target;
+  if (!target) return false;
+  if (target.closest?.('[data-ui-root="true"]')) return true;
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'BUTTON') return true;
+  return false;
+}
+
+function panelsOpen(state) {
+  return state.isMapOpen || state.isInventoryOpen || state.isSystemMenuOpen || state.isShopOpen || state.isCharSheetOpen || Boolean(state.activeInterior) || Boolean(state.activeDialog);
+}
+
+const MOVEMENT_KEYS = {
+  KeyW: 'forward',
+  ArrowUp: 'forward',
+  KeyS: 'backward',
+  ArrowDown: 'backward',
+  KeyA: 'left',
+  ArrowLeft: 'left',
+  KeyD: 'right',
+  ArrowRight: 'right'
+};
+
 const PlayerController = () => {
-  const myId = useGameStore((state) => state.myId);
-  const players = useGameStore((state) => state.players);
-  const movePlayer = useGameStore((state) => state.movePlayer);
-  const isMapOpen = useGameStore((state) => state.isMapOpen);
-  const isInventoryOpen = useGameStore((state) => state.isInventoryOpen);
-  const isSystemMenuOpen = useGameStore((state) => state.isSystemMenuOpen);
-  const activeDialog = useGameStore((state) => state.activeDialog);
   const { camera } = useThree();
-  const pointerLockWasActive = useRef(false);
-  const keys = useRef({
-    forward: false,
-    backward: false,
-    left: false,
-    right: false
-  });
+  const myFaction = useGameStore((state) => (state.myId ? state.players[state.myId]?.faction : null));
+  const myClass = useGameStore((state) => (state.myId ? state.players[state.myId]?.charClass : null));
+  const myLastAttack = useGameStore((state) => (state.myId ? state.attackStamps[state.myId] : 0));
+  const myAttackKind = useGameStore((state) => (state.myId ? state.attackKinds[state.myId] : null));
 
+  const modelRef = useRef();
+  const keys = useRef({ forward: false, backward: false, left: false, right: false });
+  const posRef = useRef(new THREE.Vector3());
+  const yawRef = useRef(0);
+  const camYaw = useRef(0);
+  const camPitch = useRef(0.42);
+  const camDist = useRef(6.5);
+  const isOrbiting = useRef(false);
+  const inited = useRef(false);
+  const emitAccum = useRef(0);
+  const lastEmit = useRef({ x: 0, z: 0, yaw: 0 });
+  const [isAttacking, setIsAttacking] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const movingRef = useRef(false);
+
+  const tmp = useMemo(() => ({
+    fwd: new THREE.Vector3(),
+    right: new THREE.Vector3(),
+    move: new THREE.Vector3(),
+    pivot: new THREE.Vector3(),
+    dir: new THREE.Vector3(),
+    desired: new THREE.Vector3()
+  }), []);
+
+  // Local attack animation (re-fires whenever the server confirms our attack)
   useEffect(() => {
-    const shouldIgnoreInput = (event) => {
-      const target = event.target;
-      if (!target) return false;
+    if (!myLastAttack) return undefined;
+    setIsAttacking(true);
+    const timer = setTimeout(() => setIsAttacking(false), 450);
+    return () => clearTimeout(timer);
+  }, [myLastAttack]);
 
-      if (target.closest?.('[data-ui-root="true"]')) return true;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'BUTTON') return true;
-      return false;
-    };
-
+  // Keyboard: WASD movement + Q skill + E interact
+  useEffect(() => {
     const handleKeyDown = (event) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
 
       const state = useGameStore.getState();
-      if (state.isMapOpen || state.isInventoryOpen || state.isSystemMenuOpen || state.activeDialog) return;
 
-      const movementKeyMap = {
-        KeyW: 'forward',
-        ArrowUp: 'forward',
-        KeyS: 'backward',
-        ArrowDown: 'backward',
-        KeyA: 'left',
-        ArrowLeft: 'left',
-        KeyD: 'right',
-        ArrowRight: 'right'
-      };
+      // Character sheet toggles even while open (must work past the panel guard).
+      if (event.code === 'KeyC') { event.preventDefault(); state.toggleCharSheet(); return; }
 
-      const movementKey = movementKeyMap[event.code];
+      if (panelsOpen(state)) return;
+
+      const movementKey = MOVEMENT_KEYS[event.code];
       if (movementKey) {
         event.preventDefault();
         keys.current[movementKey] = true;
       }
 
-      if (event.code === 'KeyQ') {
-        state.castSkill(2);
+      if (event.code === 'Digit1') state.castSkill(1);
+      if (event.code === 'Digit2' || event.code === 'KeyQ') state.castSkill(2);
+      if (event.code === 'Digit3') state.castSkill(3);
+      if (event.code === 'Digit4') state.castSkill(4);
+
+      if (event.code === 'Tab') {
+        event.preventDefault();
+        const me = state.players[state.myId];
+        if (me) {
+          const pos = me.position;
+          let nearest = null;
+          let best = 70 * 70;
+          Object.entries(state.mobs).forEach(([id, m]) => {
+            const dx = pos[0] - m.position[0];
+            const dz = pos[2] - m.position[2];
+            const d = (dx * dx) + (dz * dz);
+            if (d < best) { best = d; nearest = id; }
+          });
+          if (nearest) state.setTarget(nearest);
+          else state.clearTarget();
+        }
       }
 
       if (event.code === 'KeyE') {
@@ -516,7 +377,29 @@ const PlayerController = () => {
         });
 
         if (nearestNpc) {
-          state.talkToNPC(nearestNpc.id);
+          // Establishment NPCs are at a building door -> step inside its interior.
+          if (nearestNpc.establishment) {
+            state.enterBuilding({
+              kind: nearestNpc.establishment,
+              npcId: nearestNpc.id,
+              npcName: nearestNpc.name,
+              themeLabel: nearestNpc.themeLabel
+            });
+          } else {
+            state.talkToNPC(nearestNpc.id);
+          }
+          return;
+        }
+
+        // Wilderness shrine within reach -> pray for a blessing.
+        const nearShrine = POINTS_OF_INTEREST.some((poi) => {
+          if (poi.type !== 'shrine') return false;
+          const dx = myPosition[0] - poi.position[0];
+          const dz = myPosition[2] - poi.position[2];
+          return Math.sqrt((dx * dx) + (dz * dz)) < (poi.radius || 5) + 4;
+        });
+        if (nearShrine) {
+          state.pray();
           return;
         }
 
@@ -533,139 +416,233 @@ const PlayerController = () => {
     };
 
     const handleKeyUp = (event) => {
-      const movementKeyMap = {
-        KeyW: 'forward',
-        ArrowUp: 'forward',
-        KeyS: 'backward',
-        ArrowDown: 'backward',
-        KeyA: 'left',
-        ArrowLeft: 'left',
-        KeyD: 'right',
-        ArrowRight: 'right'
-      };
-
-      const movementKey = movementKeyMap[event.code];
+      const movementKey = MOVEMENT_KEYS[event.code];
       if (movementKey) {
         event.preventDefault();
         keys.current[movementKey] = false;
       }
     };
 
-    const handlePointerDown = (event) => {
-      if (shouldIgnoreInput(event)) return;
-      const state = useGameStore.getState();
-      if (event.button !== 0) return;
-      if (state.isMapOpen || state.isInventoryOpen || state.isSystemMenuOpen || state.activeDialog) return;
-      if (!document.pointerLockElement) return;
-      event.preventDefault();
-      state.attack();
-    };
-
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('pointerdown', handlePointerDown, true);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('pointerdown', handlePointerDown, true);
     };
   }, []);
 
+  // Mouse: RMB-drag orbits the camera, wheel zooms, LMB attacks (no pointer lock)
   useEffect(() => {
-    const currentPlayer = players[myId];
-    if (!currentPlayer) return;
-
-    const targetPosition = new THREE.Vector3(
-      currentPlayer.position[0],
-      currentPlayer.position[1] + 1.6,
-      currentPlayer.position[2]
-    );
-
-    if (camera.position.distanceTo(targetPosition) > 18) {
-      camera.position.set(currentPlayer.position[0], currentPlayer.position[1] + 1.6, currentPlayer.position[2]);
-    }
-  }, [camera, myId, players]);
-
-  useEffect(() => {
-    if (isMapOpen || isInventoryOpen || isSystemMenuOpen || activeDialog) {
-      document.exitPointerLock?.();
-    }
-  }, [activeDialog, isInventoryOpen, isMapOpen, isSystemMenuOpen]);
-
-  useEffect(() => {
-    const handlePointerLockChange = () => {
+    const onPointerDown = (event) => {
+      if (shouldIgnoreInput(event)) return;
       const state = useGameStore.getState();
-      if (document.pointerLockElement) {
-        pointerLockWasActive.current = true;
-        return;
-      }
-
-      if (pointerLockWasActive.current && state.authStage === 'game' && !state.isMapOpen && !state.isInventoryOpen && !state.activeDialog) {
-        useGameStore.setState({ isSystemMenuOpen: true });
+      if (panelsOpen(state)) return;
+      if (event.button === 2) {
+        isOrbiting.current = true;
+      } else if (event.button === 0) {
+        state.attack();
       }
     };
 
-    document.addEventListener('pointerlockchange', handlePointerLockChange);
-    return () => document.removeEventListener('pointerlockchange', handlePointerLockChange);
+    const onPointerUp = (event) => {
+      if (event.button === 2) isOrbiting.current = false;
+    };
+
+    const onPointerMove = (event) => {
+      if (!isOrbiting.current) return;
+      camYaw.current -= event.movementX * LOOK_SENS;
+      camPitch.current = clamp(camPitch.current - (event.movementY * LOOK_SENS), PITCH_MIN, PITCH_MAX);
+    };
+
+    const onWheel = (event) => {
+      if (panelsOpen(useGameStore.getState())) return;
+      camDist.current = clamp(camDist.current + (event.deltaY * 0.01), DIST_MIN, DIST_MAX);
+    };
+
+    const onContextMenu = (event) => event.preventDefault();
+
+    window.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('pointerup', onPointerUp, true);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('wheel', onWheel, { passive: true });
+    window.addEventListener('contextmenu', onContextMenu);
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('pointerup', onPointerUp, true);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('contextmenu', onContextMenu);
+    };
   }, []);
 
-  useFrame(() => {
+  useFrame((_, rawDelta) => {
     const state = useGameStore.getState();
-    const player = state.players[state.myId];
-    if (!player) return;
+    const me = state.myId ? state.players[state.myId] : null;
+    if (!me || !me.position) return;
+    const delta = Math.min(rawDelta, 0.1);
 
-    const isLocked = document.pointerLockElement !== null;
-    if (!isLocked && (state.isMapOpen || state.isInventoryOpen || state.isSystemMenuOpen || state.activeDialog)) return;
-
-    const playerOrigin = new THREE.Vector3(
-      player.position[0],
-      player.position[1] + 1.6,
-      player.position[2]
-    );
-
-    if (camera.position.distanceTo(playerOrigin) > 1.25) {
-      camera.position.copy(playerOrigin);
+    if (!inited.current) {
+      posRef.current.set(me.position[0], me.position[1] || 0, me.position[2]);
+      yawRef.current = (me.rotation && me.rotation[1]) || 0;
+      camYaw.current = yawRef.current + Math.PI; // camera sits behind the player's back (model faces +Z)
+      lastEmit.current = { x: posRef.current.x, z: posRef.current.z, yaw: yawRef.current };
+      inited.current = true;
     }
 
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
-    forward.y = 0;
-    if (forward.lengthSq() > 0) forward.normalize();
-
-    const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
-    const direction = new THREE.Vector3();
-
-    if (keys.current.forward) direction.add(forward);
-    if (keys.current.backward) direction.sub(forward);
-    if (keys.current.left) direction.sub(right);
-    if (keys.current.right) direction.add(right);
-
-    if (direction.lengthSq() > 0) {
-      direction.normalize().multiplyScalar(MOVEMENT_SPEED);
+    // Re-sync on server-driven jumps (respawn, dash, teleport)
+    const dxStore = me.position[0] - posRef.current.x;
+    const dzStore = me.position[2] - posRef.current.z;
+    if (((dxStore * dxStore) + (dzStore * dzStore)) > 12.25) {
+      posRef.current.set(me.position[0], me.position[1] || 0, me.position[2]);
     }
 
-    const currentPosition = camera.position.clone();
-    const proposedX = currentPosition.x + direction.x;
-    const proposedZ = currentPosition.z + direction.z;
-    const fixedHeight = player.position[1] + 1.6;
+    let movingNow = false;
+    if (!panelsOpen(state)) {
+      const sin = Math.sin(camYaw.current);
+      const cos = Math.cos(camYaw.current);
+      const fwd = tmp.fwd.set(-sin, 0, -cos);
+      const right = tmp.right.set(-fwd.z, 0, fwd.x);
+      const move = tmp.move.set(0, 0, 0);
+      if (keys.current.forward) move.add(fwd);
+      if (keys.current.backward) move.sub(fwd);
+      if (keys.current.left) move.sub(right);
+      if (keys.current.right) move.add(right);
 
-    const nextPosition = new THREE.Vector3(
-      Math.max(-BOUNDARY, Math.min(BOUNDARY, proposedX)),
-      fixedHeight,
-      Math.max(-BOUNDARY, Math.min(BOUNDARY, proposedZ))
-    );
+      if (move.lengthSq() > 0) {
+        movingNow = true;
+        move.normalize().multiplyScalar(MOVE_SPEED * delta);
+        const next = resolveMove(posRef.current.x, posRef.current.z, move.x, move.z);
+        posRef.current.x = next.x;
+        posRef.current.z = next.z;
+        // KayKit models face local +Z, so face the move vector directly.
+        yawRef.current = smoothAngle(yawRef.current, Math.atan2(move.x, move.z), 0.25);
+      }
+    }
 
-    camera.position.copy(nextPosition);
+    if (movingNow !== movingRef.current) {
+      movingRef.current = movingNow;
+      setMoving(movingNow);
+    }
 
-    const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
-    movePlayer([nextPosition.x, player.position[1], nextPosition.z], [0, euler.y, 0]);
+    posRef.current.y = getTerrainHeight(posRef.current.x, posRef.current.z) + 0.05;
+
+    if (modelRef.current) {
+      modelRef.current.position.copy(posRef.current);
+      modelRef.current.rotation.y = yawRef.current;
+    }
+
+    // Orbit-follow camera
+    const pivot = tmp.pivot.copy(posRef.current);
+    pivot.y += 1.5;
+    const cp = Math.cos(camPitch.current);
+    const dir = tmp.dir.set(Math.sin(camYaw.current) * cp, Math.sin(camPitch.current), Math.cos(camYaw.current) * cp);
+    const desired = tmp.desired.copy(pivot).addScaledVector(dir, camDist.current);
+    const groundY = getTerrainHeight(desired.x, desired.z) + 0.6;
+    if (desired.y < groundY) desired.y = groundY;
+    // Snap on first frame / big jumps, smooth-follow otherwise.
+    if (camera.position.distanceTo(desired) > 30) {
+      camera.position.copy(desired);
+    } else {
+      camera.position.lerp(desired, 0.3);
+    }
+    camera.lookAt(pivot);
+
+    // Throttled network emit (~10Hz, only when something changed)
+    emitAccum.current += delta;
+    if (emitAccum.current >= EMIT_INTERVAL) {
+      emitAccum.current = 0;
+      const ex = posRef.current.x - lastEmit.current.x;
+      const ez = posRef.current.z - lastEmit.current.z;
+      const eyaw = Math.abs(yawRef.current - lastEmit.current.yaw);
+      if (((ex * ex) + (ez * ez)) > 0.0004 || eyaw > 0.01) {
+        state.movePlayer(
+          [posRef.current.x, posRef.current.y, posRef.current.z],
+          [0, yawRef.current, 0]
+        );
+        lastEmit.current = { x: posRef.current.x, z: posRef.current.z, yaw: yawRef.current };
+      }
+    }
   });
 
-  if (isMapOpen || isInventoryOpen || isSystemMenuOpen || activeDialog) {
-    return null;
-  }
+  return (
+    <group ref={modelRef}>
+      <CharacterModel faction={myFaction} isMe charClass={myClass} isAttacking={isAttacking} attackStamp={myLastAttack || 0} attackKind={myAttackKind} moving={moving} />
+    </group>
+  );
+};
 
-  return <PointerLockControls />;
+const DAY_CYCLE = 240; // seconds per full day-night cycle (4 min)
+
+// Day/night: a sun that arcs overhead (rotating shadows), with light, ambient,
+// fog and sky colour shifting day -> dusk -> night -> dawn. The shadow-casting
+// light also follows the player so shadows stay crisp across the huge map.
+const DayNight = () => {
+  const { scene } = useThree();
+  const sun = useRef();
+  const amb = useRef();
+  const hemi = useRef();
+  const target = useMemo(() => new THREE.Object3D(), []);
+  const c = useMemo(() => ({
+    dayLight: new THREE.Color('#fff3d6'), nightLight: new THREE.Color('#41538c'), dusk: new THREE.Color('#ff8a48'),
+    daySky: new THREE.Color('#a8d4ff'), nightSky: new THREE.Color('#0c1430'), duskSky: new THREE.Color('#e6885a'),
+    dayFog: new THREE.Color('#cfe0f0'), nightFog: new THREE.Color('#101736'),
+    a: new THREE.Color(), b: new THREE.Color()
+  }), []);
+
+  useFrame((state) => {
+    const t = (state.clock.elapsedTime / DAY_CYCLE) % 1;
+    const az = t * Math.PI * 2;
+    const elevation = Math.cos(az); // 1 = noon, -1 = midnight
+    const day = THREE.MathUtils.clamp((elevation + 0.15) / 0.5, 0, 1);
+    const dusk = THREE.MathUtils.clamp(1 - (Math.abs(elevation) / 0.35), 0, 1);
+
+    const gs = useGameStore.getState();
+    const me = gs.myId ? gs.players[gs.myId] : null;
+    const pos = me?.position || [0, 0, 0];
+
+    if (sun.current) {
+      sun.current.position.set(pos[0] + (Math.cos(az) * 200), 190, pos[2] + (Math.sin(az) * 200));
+      target.position.set(pos[0], 0, pos[2]);
+      target.updateMatrixWorld();
+      sun.current.target = target;
+      sun.current.intensity = 0.3 + (2.3 * day);
+      sun.current.color.copy(c.nightLight).lerp(c.dayLight, day).lerp(c.dusk, dusk * 0.5);
+    }
+    if (amb.current) {
+      amb.current.intensity = 0.26 + (0.44 * day);
+      amb.current.color.copy(c.nightLight).lerp(c.dayLight, day);
+    }
+    if (hemi.current) hemi.current.intensity = 0.2 + (0.55 * day);
+
+    if (scene.background && scene.background.copy) {
+      scene.background.copy(c.nightSky).lerp(c.daySky, day).lerp(c.duskSky, dusk * 0.55);
+    }
+    if (scene.fog) {
+      scene.fog.color.copy(c.nightFog).lerp(c.dayFog, day).lerp(c.dusk, dusk * 0.4);
+    }
+  });
+
+  return (
+    <>
+      <primitive object={target} />
+      <ambientLight ref={amb} intensity={0.6} />
+      <hemisphereLight ref={hemi} intensity={0.6} color="#fff7db" groundColor="#39492f" />
+      <directionalLight
+        ref={sun}
+        intensity={2.3}
+        castShadow
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-near={1}
+        shadow-camera-far={460}
+        shadow-camera-left={-100}
+        shadow-camera-right={100}
+        shadow-camera-top={100}
+        shadow-camera-bottom={-100}
+        shadow-bias={-0.0004}
+      />
+    </>
+  );
 };
 
 const World = () => {
@@ -675,52 +652,49 @@ const World = () => {
   const npcs = useGameStore((state) => state.npcs);
   const myId = useGameStore((state) => state.myId);
   const controlPoints = useGameStore((state) => state.controlPoints);
-
-  const forest = useMemo(() => {
-    return Array.from({ length: 160 }, (_, index) => {
-      const angle = index * 0.47;
-      const radius = 138 + ((index % 18) * 7);
-      const x = Math.sin(angle) * radius;
-      const z = Math.cos(angle * 1.2) * radius;
-      const skipWarZone = Math.sqrt((x * x) + (z * z)) < WAR_ZONE_RADIUS + 14;
-      const skipRoads = Math.abs(x) < 20 && z < -70;
-      if (skipWarZone || skipRoads) return null;
-      return [x, 0, z];
-    }).filter(Boolean);
-  }, []);
+  const selectedTargetId = useGameStore((state) => state.selectedTargetId);
+  const dyingMobs = useGameStore((state) => state.dyingMobs);
+  const setTarget = useGameStore((state) => state.setTarget);
 
   const crystals = useMemo(() => ([
-    { position: [0, 1, -248], color: FACTION_META.sun.color },
-    { position: [-248, 1, 134], color: FACTION_META.shadow.color },
-    { position: [248, 1, 134], color: FACTION_META.nature.color },
+    { position: [0, 1, -980], color: FACTION_META.sun.color },
+    { position: [-980, 1, 0], color: FACTION_META.shadow.color },
+    { position: [980, 1, 0], color: FACTION_META.nature.color },
     { position: [0, 1, 0], color: FACTION_META.system.color }
   ]), []);
+
+  // --- Distance culling: the world is ~2000 units across; only render things
+  // near the player so we don't draw 36 cities + 100 establishments + 100 NPCs
+  // every frame. Center follows the local player, updated when they move >25u. ---
+  const [center, setCenter] = useState([0, 1, 0]);
+  useEffect(() => {
+    const tick = () => {
+      const s = useGameStore.getState();
+      const me = s.myId && s.players[s.myId];
+      const p = me && me.position;
+      if (p) setCenter((prev) => (((prev[0] - p[0]) ** 2 + (prev[2] - p[2]) ** 2) > 625 ? [p[0], 1, p[2]] : prev));
+    };
+    tick();
+    const iv = setInterval(tick, 400);
+    return () => clearInterval(iv);
+  }, []);
+  const within = (pos, r) => {
+    if (!pos) return false;
+    const dx = pos[0] - center[0];
+    const dz = pos[2] - center[2];
+    return (dx * dx + dz * dz) < (r * r);
+  };
 
   return (
     <>
       <color attach="background" args={['#a8d4ff']} />
-      <fog attach="fog" args={['#dce9f6', 85, 270]} />
+      <fog attach="fog" args={['#cfe0f0', 260, 1450]} />
 
       <PlayerController />
 
-      <ambientLight intensity={0.65} />
-      <hemisphereLight intensity={0.75} color="#fff7db" groundColor="#304531" />
-      <directionalLight
-        position={[80, 130, 30]}
-        intensity={2.4}
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-near={1}
-        shadow-camera-far={260}
-        shadow-camera-left={-120}
-        shadow-camera-right={120}
-        shadow-camera-top={120}
-        shadow-camera-bottom={-120}
-      />
+      <DayNight />
 
-      <Sky sunPosition={[100, 35, -15]} turbidity={8} rayleigh={1.7} mieCoefficient={0.008} mieDirectionalG={0.84} />
-      <Stars radius={180} depth={50} count={2500} factor={4} saturation={0} fade speed={0.6} />
+      <Stars radius={1600} depth={120} count={4000} factor={6} saturation={0} fade speed={0.6} />
 
       <Terrain />
 
@@ -734,7 +708,7 @@ const World = () => {
         />
       ))}
 
-      {LANDMARKS.map((landmark) => (
+      {LANDMARKS.filter((l) => within(l.position, 780)).map((landmark) => (
         <Landmark key={landmark.id} landmark={landmark} />
       ))}
 
@@ -742,8 +716,11 @@ const World = () => {
         <CrystalCluster key={index} position={crystal.position} color={crystal.color} />
       ))}
 
-      {forest.map((position, index) => (
-        <Tree key={index} position={position} scale={1 + ((index % 4) * 0.12)} />
+      <InstancedScatter center={center} />
+      <PointsOfInterest center={center} />
+
+      {ESTABLISHMENTS.filter((e) => within(e.position, 320)).map((est) => (
+        <Establishment key={est.id} est={est} />
       ))}
 
       {WALLS.map((wall, index) => (
@@ -754,7 +731,7 @@ const World = () => {
         <ControlPointBeacon key={point.id} point={point} />
       ))}
 
-      {Object.entries(npcs).map(([id, npc]) => (
+      {Object.entries(npcs).filter(([, npc]) => within(npc.position, 180)).map(([id, npc]) => (
         <NPC
           key={id}
           id={id}
@@ -767,7 +744,7 @@ const World = () => {
         />
       ))}
 
-      {Object.entries(mobs).map(([id, mob]) => (
+      {Object.entries(mobs).filter(([, mob]) => within(mob.position, 340)).map(([id, mob]) => (
         <Mob
           key={id}
           id={id}
@@ -781,10 +758,16 @@ const World = () => {
           size={mob.size}
           elite={mob.elite}
           glow={mob.glow}
+          selected={id === selectedTargetId}
+          onSelect={setTarget}
         />
       ))}
 
-      {Object.entries(items).map(([id, item]) => (
+      {Object.values(dyingMobs).map((d) => (
+        <DyingMob key={d.id} data={d} />
+      ))}
+
+      {Object.entries(items).filter(([, item]) => within(item.position, 170)).map(([id, item]) => (
         <Item
           key={id}
           id={id}
@@ -806,10 +789,11 @@ const World = () => {
           isMe={id === myId}
           name={player.name}
           stats={player.stats}
-          lastAttack={player.lastAttack}
           charClass={player.charClass}
         />
       ))}
+
+      <CombatTextLayer />
 
       <Environment preset="park" />
     </>

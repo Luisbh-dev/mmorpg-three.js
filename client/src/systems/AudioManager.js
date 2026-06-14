@@ -5,14 +5,15 @@ class AudioManager {
     this.bgmVolume = 0.3;
     this.sounds = {};
     
-    // Preload map (placeholders)
+    // Kenney CC0 audio (see public/assets/audio/CREDITS.txt)
     this.soundMap = {
-      'attack': '/assets/audio/attack.mp3',
-      'step': '/assets/audio/step.mp3',
-      'levelUp': '/assets/audio/levelup.mp3',
-      'ui_click': '/assets/audio/click.mp3',
-      'ui_hover': '/assets/audio/hover.mp3',
-      'bgm_main': '/assets/audio/music_main.mp3'
+      'attack': '/assets/audio/attack.ogg',
+      'hit': '/assets/audio/hit.ogg',
+      'pickup': '/assets/audio/pickup.ogg',
+      'levelUp': '/assets/audio/levelup.ogg',
+      'ui_click': '/assets/audio/click.ogg',
+      'ui_hover': '/assets/audio/hover.ogg',
+      'bgm_main': '/assets/audio/music_main.ogg'
     };
   }
 

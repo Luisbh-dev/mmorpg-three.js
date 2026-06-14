@@ -425,7 +425,18 @@ const MobModel = ({ type, role, size, elite, glow, isDamaged, pulse }) => {
   );
 };
 
-const Mob = ({ position, rotation, type, name, hp, maxHp, role, size, elite, glow }) => {
+const SelectionRing = ({ radius = 1.1 }) => {
+  const ref = useRef();
+  useFrame((state) => { if (ref.current) ref.current.rotation.z = state.clock.elapsedTime * 1.5; });
+  return (
+    <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.07, 0]}>
+      <ringGeometry args={[radius, radius + 0.16, 40]} />
+      <meshBasicMaterial color="#ffd23f" transparent opacity={0.85} side={THREE.DoubleSide} />
+    </mesh>
+  );
+};
+
+const Mob = ({ id, position, rotation, type, name, hp, maxHp, role, size, elite, glow, selected, onSelect }) => {
   const ref = useRef();
   const previousHp = useRef(hp);
   const [isDamaged, setIsDamaged] = useState(false);
@@ -457,7 +468,14 @@ const Mob = ({ position, rotation, type, name, hp, maxHp, role, size, elite, glo
   });
 
   return (
-    <group ref={ref} position={position}>
+    <group
+      ref={ref}
+      position={position}
+      onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(id); }}
+      onPointerOver={() => { document.body.style.cursor = 'crosshair'; }}
+      onPointerOut={() => { document.body.style.cursor = 'default'; }}
+    >
+      {selected && <SelectionRing radius={1.0 * (size || 1)} />}
       <MobModel
         type={type}
         role={role}

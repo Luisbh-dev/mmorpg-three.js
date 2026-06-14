@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import useGameStore from '../stores/useGameStore';
+import { UI } from '../lib/uiTheme';
 
 const FACTION_COLORS = {
-  'sun': '#FFD700',
-  'shadow': '#9370DB',
-  'nature': '#32CD32',
-  'system': '#00CED1'
+  'sun': '#f4c95d',
+  'shadow': '#b3a5ff',
+  'nature': '#7ad88f',
+  'system': UI.goldBright
 };
 
 const Chat = () => {
@@ -45,78 +46,68 @@ const Chat = () => {
   return (
     <div style={{
       position: 'absolute',
-      bottom: '20px',
-      left: '20px',
-      width: '400px',
-      height: '300px',
+      bottom: '18px',
+      left: '18px',
+      width: '360px',
+      height: '230px',
       display: 'flex',
       flexDirection: 'column',
       pointerEvents: 'none',
-      fontFamily: '"Cinzel", serif',
+      fontFamily: UI.fontBody,
       zIndex: 80
     }}>
       <div style={{
         flex: 1,
-        background: 'linear-gradient(to top, rgba(10,10,10,0.95), rgba(10,10,10,0.5))',
-        borderRadius: '4px 4px 0 0',
-        border: '1px solid rgba(85, 85, 85, 0.5)',
+        background: 'linear-gradient(to top, rgba(12,10,8,0.85), rgba(12,10,8,0.25))',
+        borderRadius: '6px 6px 0 0',
+        border: '1px solid rgba(197,160,89,0.22)',
         borderBottom: 'none',
-        padding: '15px',
+        padding: '12px',
         overflowY: 'auto',
         pointerEvents: 'auto',
         display: 'flex',
         flexDirection: 'column',
-        gap: '6px',
+        gap: '5px',
         scrollbarWidth: 'thin',
-        scrollbarColor: '#c5a059 #222',
-        maskImage: 'linear-gradient(to bottom, transparent, black 10%)'
+        scrollbarColor: '#6e5a32 transparent',
+        maskImage: 'linear-gradient(to bottom, transparent, black 12%)'
       }}>
         {messages.map((msg) => (
-          <div key={msg.id} style={{ fontSize: '0.95rem', color: '#ddd', textShadow: '1px 1px 2px black', lineHeight: '1.4' }}>
-            <span style={{ color: FACTION_COLORS[msg.faction] || '#aaa', fontWeight: 'bold', marginRight: '8px' }}>
-              {msg.faction === 'system' ? '❖ SISTEMA' : `[${msg.playerName}]`} 
+          <div key={msg.id} style={{ fontSize: '0.86rem', color: UI.ink, textShadow: '0 1px 2px #000', lineHeight: '1.35' }}>
+            <span style={{ color: FACTION_COLORS[msg.faction] || UI.inkDim, fontWeight: 700, marginRight: '7px' }}>
+              {msg.faction === 'system' ? '❖ Sistema' : `${msg.playerName}`}
             </span>
-            <span style={{ fontFamily: '"Segoe UI", sans-serif', color: msg.faction === 'system' ? '#00CED1' : '#fff' }}>
+            <span style={{ color: msg.faction === 'system' ? UI.goldBright : '#f0ead9' }}>
               {msg.text}
             </span>
           </div>
         ))}
         <div ref={messagesEndRef} />
       </div>
-      
+
       <form onSubmit={handleSubmit} style={{ pointerEvents: 'auto', width: '100%', display: 'flex' }}>
         <input
           ref={inputRef}
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Presiona [Enter] para hablar..."
+          placeholder="Pulsa [Enter] para hablar…"
           style={{
             flex: 1,
-            padding: '12px 15px',
-            background: 'rgba(5, 5, 5, 0.95)',
-            border: '1px solid #555',
-            borderTop: '1px solid rgba(85,85,85,0.3)',
-            color: '#e0e0e0',
-            borderRadius: '0 0 4px 4px',
+            padding: '10px 13px',
+            background: 'rgba(8,7,5,0.92)',
+            border: '1px solid rgba(197,160,89,0.25)',
+            color: UI.ink,
+            borderRadius: '0 0 6px 6px',
             outline: 'none',
-            fontFamily: '"Segoe UI", sans-serif',
-            fontSize: '0.95rem',
-            transition: 'all 0.2s',
+            fontFamily: UI.fontBody,
+            fontSize: '0.88rem',
             boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.5)'
           }}
-          onFocus={(e) => { e.target.style.borderColor = '#c5a059'; e.target.style.background = 'rgba(10,10,10,1)'; }}
-          onBlur={(e) => { e.target.style.borderColor = '#555'; e.target.style.background = 'rgba(5,5,5,0.95)'; }}
+          onFocus={(e) => { e.target.style.borderColor = UI.gold; e.target.style.background = 'rgba(14,11,8,1)'; }}
+          onBlur={(e) => { e.target.style.borderColor = 'rgba(197,160,89,0.25)'; e.target.style.background = 'rgba(8,7,5,0.92)'; }}
         />
       </form>
-      
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&display=swap');
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #222; }
-        ::-webkit-scrollbar-thumb { background: #c5a059; border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: #e0b060; }
-      `}</style>
     </div>
   );
 };

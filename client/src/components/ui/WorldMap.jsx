@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import useGameStore from '../../stores/useGameStore';
 import { LANDMARKS, MAP_RADIUS, ROADS, WAR_ZONE_RADIUS, getFactionMeta, getLandmarkColor } from '../../lib/gameData';
+import { UI } from '../../lib/uiTheme';
 
 const WorldMap = () => {
   const players = useGameStore((state) => state.players);
@@ -170,40 +171,23 @@ const WorldMap = () => {
   if (!isMapOpen) return null;
 
   return (
-    <div style={{
-      position: 'absolute',
-      inset: 0,
-      background: 'rgba(3,6,10,0.86)',
-      display: 'flex',
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 50
+    <div data-ui-root="true" style={{
+      position: 'absolute', inset: 0, background: 'rgba(3,5,8,0.8)',
+      display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 50,
+      pointerEvents: 'auto', fontFamily: UI.fontBody
     }}>
-      <div style={{
-        position: 'relative',
-        width: 760,
-        maxWidth: '90vw',
-        padding: 22,
-        borderRadius: 24,
-        background: 'linear-gradient(180deg, rgba(18,22,28,0.98), rgba(10,13,18,0.95))',
-        border: '1px solid rgba(255,255,255,0.08)',
-        boxShadow: '0 28px 60px rgba(0,0,0,0.42)'
-      }}>
+      <div style={{ position: 'relative', width: 760, maxWidth: '90vw', padding: 20, ...UI.panel, borderRadius: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div>
-            <div style={{ color: '#f4e3bf', fontSize: '1.3rem', fontWeight: 800 }}>Mapa del Reino</div>
-            <div style={{ color: '#a5b2bf', fontSize: '0.92rem' }}>Pulsa M para volver al combate</div>
+            <div style={{ color: UI.goldBright, fontFamily: UI.fontTitle, fontWeight: 700, fontSize: '1.25rem', letterSpacing: '0.05em' }}>Mapa del Reino</div>
+            <div style={{ color: UI.inkDim, fontSize: '0.85rem' }}>Pulsa M para volver al combate</div>
           </div>
           <button
             onClick={toggleMap}
             style={{
-              pointerEvents: 'auto',
-              border: '1px solid rgba(255,255,255,0.14)',
-              background: 'rgba(255,255,255,0.04)',
-              color: '#ecf3fb',
-              borderRadius: 12,
-              padding: '10px 14px',
-              cursor: 'pointer'
+              pointerEvents: 'auto', border: `1px solid ${UI.gold}`, background: 'rgba(0,0,0,0.3)',
+              color: UI.goldBright, borderRadius: 6, padding: '9px 16px', cursor: 'pointer',
+              fontFamily: UI.fontTitle, fontWeight: 700
             }}
           >
             Cerrar
@@ -213,12 +197,7 @@ const WorldMap = () => {
           ref={canvasRef}
           width={700}
           height={700}
-          style={{
-            width: '100%',
-            maxHeight: '78vh',
-            borderRadius: 24,
-            border: '1px solid rgba(255,255,255,0.08)'
-          }}
+          style={{ width: '100%', maxHeight: '78vh', borderRadius: 8, border: '1px solid rgba(197,160,89,0.2)' }}
         />
       </div>
     </div>

@@ -39,3 +39,6 @@ server/game.db
 
 # Temporary asset extraction
 tmp_assets/
+
+# Headless smoke-test screenshots
+client/scripts/*.png

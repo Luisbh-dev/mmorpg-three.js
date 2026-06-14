@@ -6,8 +6,10 @@ const roleMeta = {
   merchant: { accent: '#f1b75f', robe: '#59443a', label: 'Mercader' },
   trainer: { accent: '#7fb6ff', robe: '#3c4357', label: 'Maestro' },
   healer: { accent: '#6df58b', robe: '#365346', label: 'Sanador' },
+  innkeeper: { accent: '#ffb863', robe: '#5a3f26', label: 'Tabernero' },
   guard: { accent: '#c2d2ff', robe: '#303643', label: 'Guardia' },
-  citizen: { accent: '#cab9a2', robe: '#51483e', label: 'Vecino' }
+  citizen: { accent: '#cab9a2', robe: '#51483e', label: 'Vecino' },
+  story: { accent: '#ffd86b', robe: '#4a3d22', label: 'Heraldo' }
 };
 
 const factionTone = {
@@ -99,6 +101,14 @@ const NPC = ({ name, position, faction, type, role, questId }) => {
         <Billboard position={[0, 3.45, 0]}>
           <Text fontSize={0.95} color={accentColor} outlineWidth={0.05} outlineColor="black">
             !
+          </Text>
+        </Billboard>
+      )}
+
+      {type === 'story_giver' && (
+        <Billboard position={[0, 3.5, 0]}>
+          <Text fontSize={1.0} color="#ffd86b" outlineWidth={0.05} outlineColor="black">
+            ★
           </Text>
         </Billboard>
       )}

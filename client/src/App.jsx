@@ -8,7 +8,11 @@ import HUD from './components/ui/HUD'
 import WorldMap from './components/ui/WorldMap'
 import Inventory from './components/ui/Inventory'
 import SystemMenu from './components/ui/SystemMenu'
+import ShopUI from './components/ui/ShopUI'
+import BossBanner from './components/ui/BossBanner'
 import DialogUI from './components/ui/DialogUI'
+import CharacterSheet from './components/ui/CharacterSheet'
+import InteriorView from './components/ui/InteriorView'
 import LoginScreen from './components/LoginScreen'
 import CharacterSelection from './components/CharacterSelection'
 import useGameStore from './stores/useGameStore'
@@ -57,17 +61,21 @@ function App() {
       
       {authStage === 'game' && (
         <>
-          <Canvas shadows camera={{ fov: 75 }}>
+          <Canvas shadows camera={{ fov: 60 }} onPointerMissed={() => useGameStore.getState().clearTarget()}>
             <Suspense fallback={null}>
               <World />
             </Suspense>
           </Canvas>
           <HUD />
+          <BossBanner />
           <Chat />
           <Minimap />
           <WorldMap />
           <Inventory />
+          <ShopUI />
+          <InteriorView />
           <DialogUI />
+          <CharacterSheet />
           <SystemMenu />
         </>
       )}

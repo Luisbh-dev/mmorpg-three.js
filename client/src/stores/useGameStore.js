@@ -6,6 +6,10 @@ const MAX_MESSAGES = 80;
 const MAX_NOTIFICATIONS = 5;
 const BASIC_ATTACK_COOLDOWN_MS = 500;
 
+// The character we're playing, remembered across socket reconnects so we can
+// transparently re-enter the world without a manual re-select.
+let activeCharacterId = null;
+
 const baseSessionState = {
   players: {},
   mobs: {},
@@ -15,10 +19,27 @@ const baseSessionState = {
   messages: [],
   notifications: [],
   lastCombatAction: null,
+  floatingTexts: [],
+  attackStamps: {},
+  attackKinds: {},
   controlPoints: {},
   questDefinitions: {},
   skillBook: {},
+  // Depth-system config (hydrated from world:state; never hardcode balance numbers).
+  subclassDefs: {},
+  skillUnlocks: { 1: 1, 2: 2, 3: 4, 4: 10 },
+  attrPerPoint: {},
+  levelCap: 30,
+  gearTierReq: {},
   basicAttackReadyAt: 0,
+  selectedTargetId: null,
+  dyingMobs: {},
+  activeShop: null,
+  isShopOpen: false,
+  isCharSheetOpen: false,
+  activeInterior: null,
+  boss: null,
+  factionBuff: null,
   isMapOpen: false,
   isInventoryOpen: false,
   isSystemMenuOpen: false,
@@ -33,6 +54,17 @@ const useGameStore = create((set, get) => ({
   isConnected: false,
   myId: null,
   ...baseSessionState,
+
+  addFloatingText: (position, text, color, scale = 1) => {
+    if (!position) return;
+    const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    set((state) => ({
+      floatingTexts: [...state.floatingTexts, { id, position: [position[0], position[1], position[2]], text, color, scale, born: Date.now() }].slice(-50)
+    }));
+    setTimeout(() => {
+      set((state) => ({ floatingTexts: state.floatingTexts.filter((f) => f.id !== id) }));
+    }, 1000);
+  },
 
   pushNotification: (message, tone = 'info') => {
     set((state) => ({
@@ -62,6 +94,8 @@ const useGameStore = create((set, get) => ({
       isMapOpen: false,
       isInventoryOpen: false,
       isSystemMenuOpen: false,
+      isShopOpen: false,
+      activeShop: null,
       activeDialog: null
     });
   },
@@ -70,26 +104,50 @@ const useGameStore = create((set, get) => ({
     if (get().socket) return;
 
     const socket = io('http://localhost:3001');
+    // Store the socket SYNCHRONOUSLY so a second invocation (React StrictMode
+    // double-invokes effects in dev) hits the guard above instead of opening a
+    // second socket — otherwise the character is selected on one socket and
+    // actions go out on the other (server has no player for it).
+    set({ socket });
 
     socket.on('connect', () => {
       set({ isConnected: true, socket, myId: socket.id });
+      // Resume after a dropped connection: re-select the active character so the
+      // server re-adds us to the world (otherwise we'd be stuck out-of-world).
+      if (activeCharacterId) {
+        socket.emit('character:select', { characterId: activeCharacterId }, (res) => {
+          if (res?.success) set({ authStage: 'game' });
+        });
+      }
     });
 
     socket.on('disconnect', () => {
       audioManager.stopBGM();
+      // Keep auth/session so the 'connect' handler can transparently resume;
+      // just clear live world entities and mark disconnected.
       set({
-        socket: null,
         isConnected: false,
-        myId: null,
-        ...baseSessionState
+        players: {},
+        mobs: {},
+        items: {},
+        npcs: {},
+        floatingTexts: [],
+        dyingMobs: {}
       });
     });
 
-    socket.on('world:state', ({ controlPoints = {}, quests = {}, skills = {} }) => {
+    socket.on('world:state', ({ controlPoints = {}, quests = {}, skills = {}, boss = null, factionBuff = null, subclasses = {}, skillUnlocks = {}, attrPerPoint = {}, levelCap = 30, gearTierReq = {} }) => {
       set({
         controlPoints,
         questDefinitions: quests,
-        skillBook: skills
+        skillBook: skills,
+        boss,
+        factionBuff,
+        subclassDefs: subclasses,
+        skillUnlocks: (skillUnlocks && Object.keys(skillUnlocks).length) ? skillUnlocks : { 1: 1, 2: 2, 3: 4, 4: 10 },
+        attrPerPoint,
+        levelCap,
+        gearTierReq
       });
     });
 
@@ -135,7 +193,12 @@ const useGameStore = create((set, get) => ({
       }, 10);
     });
 
-    socket.on('mob:damage', ({ mobId, newHp }) => {
+    socket.on('mob:damage', ({ mobId, newHp, damage, isCrit }) => {
+      const mob = get().mobs[mobId];
+      if (mob && damage) {
+        get().addFloatingText(mob.position, isCrit ? `${damage}!` : `${damage}`, isCrit ? '#ffd23f' : '#ffca8a', isCrit ? 1.6 : 1);
+        audioManager.playSFX('hit');
+      }
       set((state) => {
         const mobs = { ...state.mobs };
         if (mobs[mobId]) {
@@ -166,11 +229,16 @@ const useGameStore = create((set, get) => ({
       });
     });
 
-    socket.on('player:levelup', ({ id, level, stats }) => {
+    socket.on('player:levelup', ({ id, level, stats, unspentPoints, attributes }) => {
       set((state) => {
         const players = { ...state.players };
         if (players[id]) {
-          players[id] = { ...players[id], stats };
+          players[id] = {
+            ...players[id],
+            stats,
+            ...(unspentPoints != null ? { unspentPoints } : {}),
+            ...(attributes ? { attributes } : {})
+          };
         }
 
         const notifications = [...state.notifications];
@@ -178,7 +246,9 @@ const useGameStore = create((set, get) => ({
           audioManager.playSFX('levelUp');
           notifications.push({
             id: `${Date.now()}-levelup`,
-            message: `Nivel ${level}. Tus atributos han mejorado.`,
+            message: unspentPoints != null
+              ? `¡Nivel ${level}! +1 punto de atributo (C) — ${unspentPoints} sin gastar.`
+              : `Nivel ${level}. Tus atributos han mejorado.`,
             tone: 'success'
           });
         }
@@ -187,7 +257,7 @@ const useGameStore = create((set, get) => ({
         return {
           players,
           myCharacter: state.myId === id && state.myCharacter
-            ? { ...state.myCharacter, stats }
+            ? { ...state.myCharacter, stats, ...(unspentPoints != null ? { unspentPoints } : {}), ...(attributes ? { attributes } : {}) }
             : state.myCharacter,
           messages: [
             ...state.messages,
@@ -203,6 +273,33 @@ const useGameStore = create((set, get) => ({
       });
     });
 
+    socket.on('player:attrUpdate', ({ id, attributes, unspentPoints, stats }) => {
+      set((state) => {
+        const players = { ...state.players };
+        if (players[id]) {
+          players[id] = { ...players[id], attributes, unspentPoints, ...(stats ? { stats } : {}) };
+        }
+        return {
+          players,
+          myCharacter: state.myId === id && state.myCharacter
+            ? { ...state.myCharacter, attributes, unspentPoints, ...(stats ? { stats } : {}) }
+            : state.myCharacter
+        };
+      });
+    });
+
+    socket.on('subclass:changed', ({ subclass, name }) => {
+      get().pushNotification(`Especialización: ${name || subclass}`, 'success');
+    });
+
+    socket.on('quest:advanced', ({ completed }) => {
+      if (completed) get().pushNotification('Capítulo completado', 'success');
+    });
+
+    socket.on('quest:flag', ({ flag }) => {
+      if (flag === 'subclassUnlocked') get().pushNotification('¡Especialización desbloqueada! Visita al Maestro de Armas.', 'success');
+    });
+
     socket.on('player:joined', (character) => {
       if (get().authStage === 'game') {
         set({ myCharacter: character });
@@ -215,7 +312,11 @@ const useGameStore = create((set, get) => ({
       }));
     });
 
-    socket.on('player:damage', ({ targetId, newHp, damage }) => {
+    socket.on('player:damage', ({ targetId, newHp, damage, isCrit }) => {
+      const target = get().players[targetId];
+      if (target && damage) {
+        get().addFloatingText(target.position, isCrit ? `${damage}!` : `${damage}`, targetId === get().myId ? '#ff6b6b' : (isCrit ? '#ffd23f' : '#ffd36b'), isCrit ? 1.5 : 1);
+      }
       set((state) => {
         const players = { ...state.players };
         if (players[targetId]) {
@@ -286,23 +387,56 @@ const useGameStore = create((set, get) => ({
     });
 
     socket.on('player:attacked', ({ id }) => {
-      set((state) => {
-        const players = { ...state.players };
-        if (players[id]) {
-          players[id] = { ...players[id], lastAttack: Date.now() };
-        }
-
-        if (id === state.myId) {
-          audioManager.playSFX('attack');
-        }
-
-        return { players };
-      });
+      // Stored OUTSIDE the players map (which gets fully replaced by players:update
+      // and would otherwise wipe this immediately, killing the attack animation).
+      set((state) => ({
+        attackStamps: { ...state.attackStamps, [id]: Date.now() },
+        attackKinds: { ...state.attackKinds, [id]: 'basic' }
+      }));
+      if (id === get().myId) audioManager.playSFX('attack');
     });
 
-    socket.on('player:skillUsed', ({ id, skill }) => {
-      if (id !== get().myId) return;
-      get().pushNotification(`Has usado ${skill}.`, 'info');
+    socket.on('player:skillUsed', ({ id, skill, type }) => {
+      set((state) => ({
+        attackStamps: { ...state.attackStamps, [id]: Date.now() },
+        attackKinds: { ...state.attackKinds, [id]: type || 'basic' }
+      }));
+      if (id === get().myId) get().pushNotification(`${skill}`, 'info');
+    });
+
+    socket.on('player:targetSet', ({ targetId }) => {
+      set({ selectedTargetId: targetId || null });
+    });
+
+    socket.on('mob:death', ({ mobId, position, type }) => {
+      const id = `${mobId}`;
+      set((state) => ({ dyingMobs: { ...state.dyingMobs, [id]: { id, position, type, born: Date.now() } } }));
+      setTimeout(() => {
+        set((state) => {
+          const next = { ...state.dyingMobs };
+          delete next[id];
+          return { dyingMobs: next };
+        });
+      }, 650);
+      if (get().selectedTargetId === mobId) set({ selectedTargetId: null });
+    });
+
+    socket.on('shop:state', (shop) => {
+      set({ activeShop: shop, isShopOpen: true, isMapOpen: false, isInventoryOpen: false, isSystemMenuOpen: false, activeDialog: null });
+    });
+
+    socket.on('boss:spawn', (boss) => {
+      set({ boss });
+      get().pushNotification('¡El Coloso de la Forja ha despertado!', 'danger');
+    });
+
+    socket.on('boss:defeated', ({ factionBuff }) => {
+      set({ boss: null, factionBuff: factionBuff || null });
+      get().pushNotification('¡El Coloso de la Forja ha caido!', 'success');
+    });
+
+    socket.on('boss:despawn', () => {
+      set({ boss: null });
     });
   },
 
@@ -345,7 +479,10 @@ const useGameStore = create((set, get) => ({
             userCharacters: response.characters,
             authStage: 'char_select'
           });
-          audioManager.playBGM('bgm_main');
+          // NOTE: BGM disabled. music_main.ogg is a ~1s stub clip; looping it
+          // produced an annoying continuous repeating sound. Re-enable only with
+          // a real (long) CC0 music track, ideally behind a settings toggle.
+          // audioManager.playBGM('bgm_main');
         }
         resolve(response);
       });
@@ -386,6 +523,7 @@ const useGameStore = create((set, get) => ({
     return new Promise((resolve) => {
       socket.emit('character:select', { characterId }, (response) => {
         if (response.success) {
+          activeCharacterId = characterId;
           set({
             authStage: 'game',
             isMapOpen: false,
@@ -419,7 +557,8 @@ const useGameStore = create((set, get) => ({
     set((state) => ({
       isMapOpen: !state.isMapOpen,
       isInventoryOpen: false,
-      isSystemMenuOpen: false
+      isSystemMenuOpen: false,
+      isCharSheetOpen: false
     }));
   },
 
@@ -427,7 +566,8 @@ const useGameStore = create((set, get) => ({
     set((state) => ({
       isInventoryOpen: !state.isInventoryOpen,
       isMapOpen: false,
-      isSystemMenuOpen: false
+      isSystemMenuOpen: false,
+      isCharSheetOpen: false
     }));
   },
 
@@ -435,8 +575,41 @@ const useGameStore = create((set, get) => ({
     set((state) => ({
       isSystemMenuOpen: !state.isSystemMenuOpen,
       isMapOpen: false,
-      isInventoryOpen: false
+      isInventoryOpen: false,
+      isCharSheetOpen: false
     }));
+  },
+
+  toggleCharSheet: () => {
+    set((state) => ({
+      isCharSheetOpen: !state.isCharSheetOpen,
+      isMapOpen: false,
+      isInventoryOpen: false,
+      isSystemMenuOpen: false
+    }));
+  },
+
+  spendAttribute: (attr) => {
+    const { socket } = get();
+    if (socket) socket.emit('attr:spend', { attr });
+  },
+
+  respecAttributes: () => {
+    const { socket } = get();
+    if (socket) socket.emit('attr:respec');
+  },
+
+  chooseSubclass: (subKey, respec = false) => {
+    const { socket } = get();
+    if (socket) socket.emit('subclass:choose', { subKey, respec });
+  },
+
+  enterBuilding: (interior) => {
+    set({ activeInterior: interior, isMapOpen: false, isInventoryOpen: false, isSystemMenuOpen: false, isCharSheetOpen: false });
+  },
+
+  exitBuilding: () => {
+    set({ activeInterior: null, isShopOpen: false, activeShop: null, activeDialog: null });
   },
 
   talkToNPC: (npcId) => {
@@ -446,6 +619,16 @@ const useGameStore = create((set, get) => ({
 
   closeDialog: () => {
     set({ activeDialog: null });
+  },
+
+  rest: () => {
+    const { socket } = get();
+    if (socket) socket.emit('player:rest');
+  },
+
+  pray: () => {
+    const { socket } = get();
+    if (socket) socket.emit('shrine:pray');
   },
 
   acceptQuest: (questId) => {
@@ -460,12 +643,54 @@ const useGameStore = create((set, get) => ({
 
   pickupItem: (itemId) => {
     const { socket } = get();
-    if (socket) socket.emit('player:pickup', itemId);
+    if (socket) { socket.emit('player:pickup', itemId); audioManager.playSFX('pickup'); }
   },
 
   useItem: (index) => {
     const { socket } = get();
     if (socket) socket.emit('player:useItem', index);
+  },
+
+  equipItem: (index) => {
+    const { socket } = get();
+    if (socket) socket.emit('player:equip', index);
+  },
+
+  unequipItem: (slot) => {
+    const { socket } = get();
+    if (socket) socket.emit('player:unequip', slot);
+  },
+
+  buyItem: (itemCode, qty = 1) => {
+    const { socket, activeShop } = get();
+    if (socket) socket.emit('shop:buy', { itemCode, qty, merchantId: activeShop?.merchantId });
+  },
+
+  sellItem: (index) => {
+    const { socket, activeShop } = get();
+    if (socket) socket.emit('shop:sell', { index, merchantId: activeShop?.merchantId });
+  },
+
+  openShop: (npcId) => {
+    const { socket } = get();
+    if (socket) socket.emit('shop:open', npcId);
+  },
+
+  closeShop: () => {
+    set({ isShopOpen: false, activeShop: null });
+  },
+
+  setTarget: (targetId) => {
+    const { socket, selectedTargetId } = get();
+    if (selectedTargetId === targetId) return;
+    set({ selectedTargetId: targetId });
+    if (socket) socket.emit('player:setTarget', targetId);
+  },
+
+  clearTarget: () => {
+    const { socket } = get();
+    set({ selectedTargetId: null });
+    if (socket) socket.emit('player:setTarget', null);
   },
 
   castSkill: (slot) => {
@@ -494,9 +719,15 @@ const useGameStore = create((set, get) => ({
   },
 
   disconnect: () => {
+    activeCharacterId = null; // intentional logout: don't auto-resume
     const { socket } = get();
     if (socket) socket.disconnect();
+    // Drop the socket ref so the login screen's connect() can open a fresh one
+    // (manual disconnect disables socket.io auto-reconnect).
+    set({ socket: null, isConnected: false });
   }
 }));
+
+if (typeof window !== 'undefined') window.__game = useGameStore;
 
 export default useGameStore;
